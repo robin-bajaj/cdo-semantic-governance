@@ -168,6 +168,7 @@ def validate(
             content = yaml.safe_load(yaml_file.read_text())
         except yaml.YAMLError as e:
             click.echo(f"Error parsing {yaml_file}: {e}", err=True)
+            exit_code = max(exit_code, 1)
             continue
 
         if not content:
