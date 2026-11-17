@@ -181,3 +181,10 @@ def test_context_fails_but_contract_passes(tmp_path):
     assert "FALSE CONFIDENCE RISK" in result.output
     assert "CDO SEMANTIC CONTRACT VALIDATION" in result.output
     assert "PASS" in result.output
+
+def test_invalid_yaml_fails_validation(tmp_path):
+    invalid = tmp_path / "broken.yml"
+    invalid.write_text("models:\n  - name: [unterminated\n")
+    result = CliRunner().invoke(main, ["validate", str(invalid)])
+    assert result.exit_code == 1, result.output
+    assert "Error parsing" in result.output
