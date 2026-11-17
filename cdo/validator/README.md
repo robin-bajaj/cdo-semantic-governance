@@ -1,115 +1,68 @@
-# dbt-meta-context-validator
+# CDO semantic contract and Meta:Context validator
 
-A CLI for validating meta context blocks in dbt semantic model YAML files.
+Python package installed from `cdo/validator/`, providing:
 
-## Install
+| Component | Module | Purpose |
+|---|---|---|
+| Semantic inheritance compiler | `meta_context_validator.compile_semantics` | Expand team `semantic_inheritance.extends` to native dbt YAML before parsing |
+| Contract validator | `meta_context_validator.contract_rules` | Check the compiled dbt manifest against the CDO registry |
+| Metric context validator | `meta_context_validator.rules` | Validate enterprise metric context, expectations, investigations, relationships, and decisions |
+| CLI | `dbt-mc validate` | Run context validation with optional contract checks |
 
-```bash
-pip install "git+https://github.com/keithbinkly/dbt-meta-context.git#subdirectory=validator"
-```
+## Installation
 
-Or from source:
-
-```bash
-cd validator/
-pip install -e .
-```
-
-## Usage
+From the repository root:
 
 ```bash
-# Validate a single file
-dbt-mc validate models/semantic_models/my_metrics.yml
-
-# Validate all semantic model files in a directory
-dbt-mc validate models/semantic_models/
-
-# Validate with JSON output (for CI integration)
-dbt-mc validate models/ --format json
-
-# Show only errors (suppress warnings)
-dbt-mc validate models/ --errors-only
+python -m pip install -e ./cdo/validator
+python -m pytest cdo/validator/tests -q
 ```
 
-## Output
+## Commands
 
-```
-models/semantic_models/mart_payments.yml
-  metric: success_rate
-    ✓ Bronze tier: all 13 Core fields present
-    ✗ Silver tier: missing recommended fields
-        - expectations.trend (Recommended)
-        - investigation.common_false_positives (Recommended)
-        - relationships.leads_to (Recommended)
-    ⚠ FALSE CONFIDENCE RISK: expectations populated without decisions.business_rules
-        Layer 2 (Expectations) is present but Layer 5 (Decisions) has no business_rules.
-        An AI agent with this context will give calibrated but potentially wrong answers
-        on SLA and compliance questions. Add business_rules or remove expectations.
+From a temporary checkout of the federated dbt project:
 
-  metric: refund_rate
-    ✓ Bronze tier
-    ✓ Silver tier
-    ✗ Type error: healthy_range must be [number, number], got string
+```bash
+python -m meta_context_validator.compile_semantics \
+  --registry ../contract-validator/cdo/definitions/position_v1.yml \
+  --project .
 
-Summary: 2 metrics | 1 Bronze | 1 Silver | 0 Gold | 1 false-confidence risk
+dbt parse --no-partial-parse
+
+dbt-mc validate models/semantic_models/team_cdo/enterprise_metrics.yml \
+  --contracts ../contract-validator/cdo/definitions/position_v1.yml \
+  --manifest target/manifest.json
 ```
 
-## Exit codes
+`dbt-mc validate <path>` supports `--format json` and `--errors-only`. The `--contracts` and `--manifest` options must be supplied together.
 
-| Code | Meaning |
-|------|---------|
-| 0 | All metrics pass Bronze tier, no type errors, no false-confidence risk |
-| 1 | One or more metrics fail Bronze tier or have type errors |
-| 2 | False-confidence risk detected (Layer 2 present, Layer 5 `business_rules` absent) |
+The compiler changes model property YAML **in place**. A deployable copy is generated in the federated repository's manual publishing workflow, not committed into the federated source `main` by the compiler.
 
-Exit code 2 does not imply 1 — a metric can be Bronze-compliant and still have a false-confidence risk.
+## Contract behavior
 
-## CI integration
+- The **only mandatory attributes source** is the CDO registry's `semantic_columns` list.
+- Each opted-in model has a `config.meta.semantic_contract.implements` marker after compilation and must match the contract version.
+- Missing columns, declared type mismatches, and `config.contract.enforced: false` are validation errors.
+- An unrelated model without the CDO marker is ignored.
+- The validator fails if no CDO implementation is present in the manifest it was instructed to validate.
+- Native `dbt build` against PostgreSQL, **outside this Python package**, verifies actual SQL relation output and enforced model contracts.
 
-```yaml
-# .github/workflows/dbt-meta-context.yml
-- name: Validate meta context
-  run: dbt-mc validate models/semantic_models/ --format json > meta-context-report.json
-  continue-on-error: true
+## Metric Meta:Context behavior
 
-- name: Check for false-confidence risks
-  run: dbt-mc validate models/semantic_models/ --errors-only
-```
+The CLI analyzes the `context`, `expectations`, `investigation`, `relationships`, and `decisions` metadata attached to dbt metric definitions. It reports field completeness (Bronze/Silver), structural errors, and false-confidence warnings.
 
-Or as a dbt test hook — add to your `dbt_project.yml`:
+Exit codes for `dbt-mc validate`:
 
-```yaml
-on-run-end:
-  - "{{ log(run_results | tojson) }}"
-```
+| Exit | Meaning |
+|---|---|
+| 0 | No blocking metric/context or CDO contract errors |
+| 1 | A required metric field, structural check, or CDO contract fails |
+| 2 | False-confidence risk detected (e.g. populated thresholds without `decisions.business_rules`) |
 
-(Full dbt test integration coming in a future release.)
+For executable examples, see `tests/test_semantic_compiler.py`, `tests/test_independent_projects.py`, and `tests/test_combined_cli.py`.
 
-## Pre-commit hook
+## Current architecture
 
-```yaml
-# .pre-commit-config.yaml
-repos:
-  - repo: local
-    hooks:
-      - id: meta-context-validate
-        name: Validate dbt meta context
-        entry: dbt-mc validate
-        language: python
-        files: \.yml$
-        args: [--errors-only]
-```
+See [the repository-level README](../../README.md), [CDO position reference](../README.md), and [central contract](../definitions/position_v1.yml).
 
-## Rules checked
-
-| Rule | Tier | Description |
-|------|------|-------------|
-| Core fields present | Bronze | All 13 Core fields populated. **Absent ≠ intentionally null:** an explicit `null` on an `expectations` field validates clean (info) when `decisions.business_rules` documents the external source of the values — the [Gap 1](../spec/known-gaps.md) contract-scoped pattern. A null without that justification, or in any other layer, is an error. `0` / `0.0` / `false` count as populated (a threshold of 0 is a threshold). |
-| healthy_range type | Bronze | Must be [number, number] |
-| causal_dimensions structure | Bronze | Each entry must have name, why, priority |
-| correlates_with relationship typed | Bronze | relationship must be a string describing direction/type |
-| when_this_drops structure | Bronze | Each entry must have threshold and action |
-| False confidence risk | Warning | Layer 2 present, Layer 5 business_rules absent |
-| Recommended fields present | Silver | All 10 Recommended fields populated |
-| last_validated freshness | Warning | Flag if > 90 days ago |
-| All fields present | Gold | All 36 fields populated |
+This package is a custom **pre-dbt-parse** extension. Its `extends` syntax is not a native dbt feature, and its Meta:Context rules are separate from dbt's native SQL/model contract enforcement.
