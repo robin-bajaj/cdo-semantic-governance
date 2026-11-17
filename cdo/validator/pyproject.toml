@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dbt-meta-context-validator"
 version = "0.1.0"
-description = "Validate meta context blocks in dbt semantic model YAML"
+description = "Compile CDO semantic inheritance and validate dbt contracts and metric context"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"

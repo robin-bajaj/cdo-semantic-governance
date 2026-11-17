@@ -1,62 +1,69 @@
-# CDO governed Position semantic definition
+# CDO Position v1 — governed semantic definition
 
-CDO maintains **one canonical custom business definition file**:
+The [CDO registry](definitions/position_v1.yml) owns the **canonical** enterprise Position interface:
 
-`cdo/definitions/position_v1.yml`
+| Attribute | Declared type | Semantic role |
+|---|---|---|
+| `position_id` | `text` | Primary position entity (team alias supported) |
+| `report_date` | `date` | Daily time dimension; aggregation time |
+| `profit_loss` | `numeric` | Standardized position P&L |
+| `instrument_code` | `integer` | Foreign instrument entity |
 
-Its `semantic_columns` list is the single source for required Position attributes,
-types, entities, and dimensions. The registry also defines
-the approved `cdo.profit_loss` metric (`SUM(profit_loss)`).
-It is **not native dbt semantic_model YAML**: the Python extension translates
-metric-level references into native MetricFlow YAML before dbt parses.
+The registry also defines the `cdo.profit_loss` metric as `SUM(profit_loss)` and requires `config.contract.enforced: true` for participating dbt models.
 
-```text
-cdo/
-  definitions/
-    position_v1.yml                   # Common Position contract AND metrics
-  validator/
-    pyproject.toml
-    meta_context_validator/
-      cli.py                           # dbt-mc validate command
-      contract_rules.py                # Required column/type checks
-      rules.py                         # Green Dot Meta:Context checks
-      metric_generator.py              # Expand metric references
-      generate_metrics.py              # Generator command entry point
-    tests/
-```
+**There is no separate `required_columns` list**: each `semantic_columns[]` entry supplies both the mandatory interface and reusable semantics. The registry is a **custom pre-parse DSL**, not native dbt YAML or an OSI schema.
 
-Team A / Team C supply independently maintained staging models that declare
-`config.meta.semantic_contract.implements: cdo.position`, and place a short
-reference under the matching `models[].metrics[]` item:
+## Implementations
+
+Team A and Team C maintain their own staging SQL and team-specific semantic YAML in the [Federated dbt POC](https://github.com/robin-bajaj/federated-semantic-poc).
+
+A participating model declares `config.meta.semantic_inheritance`, e.g.:
 
 ```yaml
-metrics:
-  - name: equity_profit_loss
-    label: Equity Profit and Loss
-    config:
-      meta:
-        metric_contract:
-          implements: cdo.profit_loss
-          version: 1
+config:
+  contract:
+    enforced: true
+  meta:
+    semantic_inheritance:
+      extends: cdo.position
+      version: 1
+      entity_aliases:
+        position: team_a_position
+      metric_aliases:
+        cdo.profit_loss: equity_profit_loss
 ```
 
-For GitHub Actions, check out this repository under `contract-validator/`;
-install `./contract-validator/cdo/validator`. Then, while working in
-`dbt-project/`:
+The [compiler](validator/meta_context_validator/semantic_compiler.py) expands CDO columns, entity/dimension properties and metrics in a temporary checkout, rejecting unsupported versions, duplicate column declarations and alias errors. The compiled YAML gains `config.meta.semantic_contract: {implements: cdo.position, version: 1}` for manifest-based validation. Nonparticipating models (no inheritance declaration) are left unchanged.
+
+## Run the integration
+
+Install the package from this repository:
 
 ```bash
-python -m meta_context_validator.generate_metrics \
+python -m pip install -e ./cdo/validator
+python -m pytest cdo/validator/tests -q
+```
+
+From the **federated dbt project directory** (assuming this repository was checked out at `../contract-validator/`):
+
+```bash
+python -m meta_context_validator.compile_semantics \
   --registry ../contract-validator/cdo/definitions/position_v1.yml \
   --project .
+
 dbt parse --no-partial-parse
+
 dbt-mc validate models/semantic_models/team_cdo/enterprise_metrics.yml \
   --contracts ../contract-validator/cdo/definitions/position_v1.yml \
   --manifest target/manifest.json
 ```
 
-**Important:** `config.meta.metric_contract` alone is not valid native metric
-inheritance. dbt Studio does not automatically run the generator. Developers
-need a generated working tree before parsing in Studio, or a publishing workflow
-that makes reviewed, generated dbt YAML available. The registry governs
-aggregation of standardized P&L values, **not the calculation of the
-position-level values by source systems**.
+Use a disposable working checkout: compilation rewrites the source YAML in place. The federated PR workflow performs these operations on the Actions runner and builds the staging models with enforced native contracts against PostgreSQL. The separately triggered publish workflow commits expanded YAML into `generated/production`; it is **not** a hosted semantic-layer deployment.
+
+See the [repository overview](../README.md) and [CLI documentation](validator/README.md).
+
+## Important limitations
+
+- Manifest validation checks **declared** columns and types, not actual warehouse columns; live dbt build enforces the physical model contract.
+- The source systems remain responsible for correctness of position-level `profit_loss` values.
+- dbt Studio does not automatically execute the custom semantic compiler when opening reference-only source YAML.
