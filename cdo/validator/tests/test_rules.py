@@ -1,6 +1,6 @@
 """Tests for validation rules — including the explicit-null semantics from issue #1.
 
-The Gap 1 workaround (spec/known-gaps.md) recommends writing contract-scoped
+The supported explicit-null pattern recommends writing contract-scoped
 expectations as explicit nulls with the external registry documented in
 decisions.business_rules. Issue #1 reported that the validator scored that
 exact pattern as missing_core_field errors (tier "none"). These tests pin the
