@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   compose:
@@ -88,3 +88,25 @@ jobs:
           name: cdo-enterprise-position-catalog
           path: dbt-project/generated/cdo/position/v1/cdo_enterprise_positions.yml
           if-no-files-found: error
+
+      # A PR run only validates/uploads an artifact. On a trusted main run,
+      # commit the generated snapshot to this governance repository.
+      - name: Publish generated catalog in repository
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="cdo/generated/position/v1/cdo_enterprise_positions.yml"
+          source="dbt-project/generated/cdo/position/v1/cdo_enterprise_positions.yml"
+          mkdir -p "contract-validator/$(dirname "$target")"
+          cp "$source" "contract-validator/$target"
+          cd contract-validator
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$target"
+          if git diff --cached --quiet; then
+            echo "Generated CDO catalog is already current"
+          else
+            git commit -m "chore(cdo): refresh generated Position semantic catalog"
+            git push origin HEAD:main
+          fi
