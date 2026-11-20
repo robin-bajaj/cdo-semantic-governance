@@ -34,16 +34,8 @@ def setup_compiled(tmp_path):
 
 def test_preserves_common_and_all_team_extensions(tmp_path):
     root, contract, manifest = setup_compiled(tmp_path)
-    enterprise = tmp_path / "enterprise_metrics.yml"
-    enterprise.write_text(yaml.safe_dump({"metrics": [{
-        "name": "enterprise_total_profit_loss", "type": "derived",
-        "input_metrics": [
-            {"name": "team_a_profit_loss", "alias": "eq"},
-            {"name": "team_c_profit_loss", "alias": "fi"},
-        ],
-    }]}))
     output = tmp_path / "generated" / "cdo" / "position" / "v1" / "cdo_enterprise_positions.yml"
-    compose_cdo(root, contract, manifest, output, enterprise,
+    compose_cdo(root, contract, manifest, output,
                 ["team_a_positions", "team_c_positions"])
     result = yaml.safe_load(output.read_text())
     assert result["catalog_format"] == "cdo-federated-semantic-catalog/v1"
@@ -58,7 +50,7 @@ def test_preserves_common_and_all_team_extensions(tmp_path):
     assert "settled_cash" in {col["name"] for col in c["columns"]}
     assert {m["name"] for m in a["metrics"]} == {"team_a_profit_loss", "team_a_count"}
     assert {m["name"] for m in c["metrics"]} == {"team_c_profit_loss", "team_c_count"}
-    assert result["enterprise_metrics"][0]["name"] == "enterprise_total_profit_loss"
+    assert "enterprise_metrics" not in result
     before = output.read_bytes()
     compose_cdo(root, contract, manifest, output, enterprise,
                 ["team_a_positions", "team_c_positions"])
@@ -74,19 +66,6 @@ def test_rejects_missing_participating_team(tmp_path):
     with pytest.raises(ValueError, match="Missing expected semantic models"):
         compose_cdo(root, contract, manifest, output,
                     expected_teams=["team_a_positions", "team_c_positions"])
-    assert not output.exists()
-
-
-def test_rejects_unresolved_enterprise_input(tmp_path):
-    root, contract, manifest = setup_compiled(tmp_path)
-    enterprise = tmp_path / "enterprise.yml"
-    enterprise.write_text(yaml.safe_dump({"metrics": [{
-        "name": "enterprise_total_profit_loss",
-        "input_metrics": [{"name": "missing_metric"}],
-    }]}))
-    output = tmp_path / "generated.yml"
-    with pytest.raises(ValueError, match="unknown input"):
-        compose_cdo(root, contract, manifest, output, enterprise)
     assert not output.exists()
 
 
