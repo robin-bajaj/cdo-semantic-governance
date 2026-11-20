@@ -52,7 +52,7 @@ def test_preserves_common_and_all_team_extensions(tmp_path):
     assert {m["name"] for m in c["metrics"]} == {"team_c_profit_loss", "team_c_count"}
     assert "enterprise_metrics" not in result
     before = output.read_bytes()
-    compose_cdo(root, contract, manifest, output, enterprise,
+    compose_cdo(root, contract, manifest, output,
                 ["team_a_positions", "team_c_positions"])
     assert output.read_bytes() == before
 
