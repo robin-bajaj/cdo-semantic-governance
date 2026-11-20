@@ -53,9 +53,13 @@ python -m meta_context_validator.compile_semantics \
 
 dbt parse --no-partial-parse
 
-dbt-mc validate models/semantic_models/team_cdo/enterprise_metrics.yml \
-  --contracts ../contract-validator/cdo/definitions/position_v1.yml \
-  --manifest target/manifest.json
+python -m meta_context_validator.compose_cdo \
+  --project . \
+  --contract ../contract-validator/cdo/definitions/position_v1.yml \
+  --manifest target/manifest.json \
+  --require-semantic-model team_a_equity_positions \
+  --require-semantic-model team_c_fi_positions \
+  --output generated/cdo/position/v1/cdo_enterprise_positions.yml
 ```
 
 Use a disposable working checkout: compilation rewrites the source YAML in place. The federated PR workflow performs these operations on the Actions runner and builds the staging models with enforced native contracts against PostgreSQL. The separately triggered publish workflow commits expanded YAML into `generated/production`; it is **not** a hosted semantic-layer deployment.

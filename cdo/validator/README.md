@@ -29,9 +29,13 @@ python -m meta_context_validator.compile_semantics \
 
 dbt parse --no-partial-parse
 
-dbt-mc validate models/semantic_models/team_cdo/enterprise_metrics.yml \
-  --contracts ../contract-validator/cdo/definitions/position_v1.yml \
-  --manifest target/manifest.json
+python -m meta_context_validator.compose_cdo \
+  --project . \
+  --contract ../contract-validator/cdo/definitions/position_v1.yml \
+  --manifest target/manifest.json \
+  --require-semantic-model team_a_equity_positions \
+  --require-semantic-model team_c_fi_positions \
+  --output generated/cdo/position/v1/cdo_enterprise_positions.yml
 ```
 
 `dbt-mc validate <path>` supports `--format json` and `--errors-only`. The `--contracts` and `--manifest` options must be supplied together.
@@ -47,7 +51,7 @@ The compiler changes model property YAML **in place**. A deployable copy is gene
 - The validator fails if no CDO implementation is present in the manifest it was instructed to validate.
 - Native `dbt build` against PostgreSQL, **outside this Python package**, verifies actual SQL relation output and enforced model contracts.
 
-## Metric Meta:Context behavior
+## Optional Metric Meta:Context behavior
 
 The CLI analyzes the `context`, `expectations`, `investigation`, `relationships`, and `decisions` metadata attached to dbt metric definitions. It reports field completeness (Bronze/Silver), structural errors, and false-confidence warnings.
 

@@ -68,7 +68,7 @@ The compiler expands this to the inherited column definitions, semantic entities
 2. Install dbt, PostgreSQL adapter, and this validator; execute unit tests.
 3. Compile Team A/C `semantic_inheritance` in the runner checkout.
 4. Run `dbt parse --no-partial-parse` to produce `target/manifest.json` and `target/semantic_manifest.json`.
-5. Validate declared CDO implementations against the manifest and verify the enterprise metric's Meta:Context.
+5. Validate declared CDO implementations against the manifest and compose the versioned CDO team catalog.
 6. For same-repository PRs, connect to Neon PostgreSQL, seed Team A/C source data, then `dbt build` both staging models with native enforced contracts. The live database step is skipped for fork PRs.
 
 **Manifest validation is metadata validation**; the live `dbt build` checks actual SQL output and physical types. The current workflow does not certify financial accuracy, and it does not generate `catalog.json`.
@@ -93,9 +93,13 @@ python -m meta_context_validator.compile_semantics \
 
 dbt parse --no-partial-parse
 
-dbt-mc validate models/semantic_models/team_cdo/enterprise_metrics.yml \
-  --contracts ../contract-validator/cdo/definitions/position_v1.yml \
-  --manifest target/manifest.json
+python -m meta_context_validator.compose_cdo \
+  --project . \
+  --contract ../contract-validator/cdo/definitions/position_v1.yml \
+  --manifest target/manifest.json \
+  --require-semantic-model team_a_equity_positions \
+  --require-semantic-model team_c_fi_positions \
+  --output generated/cdo/position/v1/cdo_enterprise_positions.yml
 ```
 
 The compiler writes expanded YAML into the working copy: do **not** commit those files over Team A/C's source declarations. Use the federated publishing workflow to create deployment-ready YAML.
@@ -111,7 +115,7 @@ See [`cdo/README.md`](cdo/README.md) for a focused contract reference and [`cdo/
 - The registry format is **custom**, compiled into native dbt syntax; it is not an Apache OSI or native dbt semantic-model specification.
 - Independent model names are supported; CDO does not prescribe a team's staging model name.
 - Contract validation discovers opted-in implementations using `config.meta.semantic_contract.implements` in `manifest.json`. The CLI fails closed when no CDO implementation exists in the manifest it was asked to validate.
-- `Meta:Context` support remains because the federated CI validates the enterprise metric context card.
+- The optional Meta:Context CLI is retained as a separate utility, but it is not part of the active federated CDO validation or release path.
 - Legacy upstream research documents, authoring skill, example, and the obsolete metric-only generator have been removed from this POC repository. The active Meta:Context validator code and regression tests remain.
 
 ## Links
