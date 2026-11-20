@@ -77,7 +77,6 @@ jobs:
             --project . \
             --contract ../contract-validator/cdo/definitions/position_v1.yml \
             --manifest target/manifest.json \
-            --enterprise-metrics models/semantic_models/team_cdo/enterprise_metrics.yml \
             --require-semantic-model team_a_equity_positions \
             --require-semantic-model team_c_fi_positions \
             --output generated/cdo/position/v1/cdo_enterprise_positions.yml
