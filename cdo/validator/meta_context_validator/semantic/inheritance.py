@@ -203,7 +203,7 @@ def main():
     parser.add_argument("--registry", required=True, type=Path)
     parser.add_argument("--project", required=True, type=Path)
     args = parser.parse_args()
-    changed = compile_semantics(args.registry, args.project)
+    changed = compile_semantics(args.project, args.registry)
     print(f"Compiled semantic inheritance in {len(changed)} YAML file(s)")
 
 
