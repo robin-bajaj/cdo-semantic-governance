@@ -47,13 +47,13 @@ python -m pytest cdo/validator/tests -q
 From the **federated dbt project directory** (assuming this repository was checked out at `../contract-validator/`):
 
 ```bash
-python -m meta_context_validator.compile_semantics \
+python -m meta_context_validator.semantic.inheritance \
   --registry ../contract-validator/cdo/definitions/position_v1.yml \
   --project .
 
 dbt parse --no-partial-parse
 
-python -m meta_context_validator.compose_cdo \
+python -m meta_context_validator.semantic.composition \
   --project . \
   --contract ../contract-validator/cdo/definitions/position_v1.yml \
   --manifest target/manifest.json \
@@ -62,7 +62,7 @@ python -m meta_context_validator.compose_cdo \
   --output /tmp/current_cdo_catalog.yml
 ```
 
-Next, run `python -m meta_context_validator.generate_cdo_dbt --catalog /tmp/current_cdo_catalog.yml --out models/semantic_models/team_cdo/generated` to produce native dbt SQL/YAML. This output is versioned and reviewed in the federated repository, not stored as a catalog here.
+Next, run `python -m meta_context_validator.semantic.dbt_generator --catalog /tmp/current_cdo_catalog.yml --out models/semantic_models/team_cdo/generated` to produce native dbt SQL/YAML. This output is versioned and reviewed in the federated repository, not stored as a catalog here.
 
 Use a disposable working checkout: compilation rewrites the source YAML in place. The federated PR workflow performs these operations on the Actions runner and builds the staging models with enforced native contracts against PostgreSQL. The combined promotion workflow commits expanded Team A/C and CDO YAML/SQL into `generated/production`; it is **not** a hosted semantic-layer deployment.
 
