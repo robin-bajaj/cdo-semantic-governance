@@ -16,6 +16,8 @@ cdo/
       semantic_compiler.py                 # Resolve semantic_inheritance before dbt parse
       compile_semantics.py                 # Compiler CLI entrypoint
       contract_rules.py                    # Compare dbt manifest against CDO contract
+      compose_cdo.py                       # Compose validated team semantics into temporary catalog
+      generate_cdo_dbt.py                  # Generate native CDO dbt SQL/YAML
       cli.py                               # dbt-mc validate: contract + Meta:Context
       rules.py                             # Meta:Context governance checks
     tests/                                 # Compiler, contract, CLI, Meta:Context tests
@@ -99,8 +101,18 @@ python -m meta_context_validator.compose_cdo \
   --manifest target/manifest.json \
   --require-semantic-model team_a_equity_positions \
   --require-semantic-model team_c_fi_positions \
-  --output generated/cdo/position/v1/cdo_enterprise_positions.yml
+  --output /tmp/current_cdo_catalog.yml
 ```
+
+Generate the native dbt CDO SQL/YAML from the temporary catalog:
+
+```bash
+python -m meta_context_validator.generate_cdo_dbt \
+  --catalog /tmp/current_cdo_catalog.yml \
+  --out models/semantic_models/team_cdo/generated
+```
+
+The governance repository no longer publishes a persistent intermediate composition catalog. The federated Sync workflow owns snapshot generation and CDO PRs.
 
 The compiler writes expanded YAML into the working copy: do **not** commit those files over Team A/C's source declarations. Use the federated publishing workflow to create deployment-ready YAML.
 
