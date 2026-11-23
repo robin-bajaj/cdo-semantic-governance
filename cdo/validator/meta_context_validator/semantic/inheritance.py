@@ -193,3 +193,19 @@ def compile_semantics(project_path: Path, registry_path: Path) -> list[str]:
     for path, text in pending:
         path.write_text(text, encoding="utf-8")
     return [str(path) for path, _ in pending]
+
+
+def main():
+    """CLI entry point for compiling CDO inheritance before dbt parse."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Compile CDO semantic inheritance into native dbt YAML")
+    parser.add_argument("--registry", required=True, type=Path)
+    parser.add_argument("--project", required=True, type=Path)
+    args = parser.parse_args()
+    changed = compile_semantics(args.project, args.registry)
+    print(f"Compiled semantic inheritance in {len(changed)} YAML file(s)")
+
+
+if __name__ == "__main__":
+    main()
