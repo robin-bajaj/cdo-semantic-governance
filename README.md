@@ -8,21 +8,30 @@ The CDO publishes a custom, versioned business definition independently of the t
 
 ```text
 cdo/
-  definitions/
-    position_v1.yml                       # Authoritative CDO Position v1 definition
-  validator/
-    pyproject.toml                         # Installable Python package and dbt-mc CLI
-    meta_context_validator/
-      semantic_compiler.py                 # Resolve semantic_inheritance before dbt parse
-      compile_semantics.py                 # Compiler CLI entrypoint
-      contract_rules.py                    # Compare dbt manifest against CDO contract
-      compose_cdo.py                       # Compose validated team semantics into temporary catalog
-      generate_cdo_dbt.py                  # Generate native CDO dbt SQL/YAML
-      cli.py                               # dbt-mc validate: contract + Meta:Context
-      rules.py                             # Meta:Context governance checks
-    tests/                                 # Compiler, contract, CLI, Meta:Context tests
-.github/workflows/validator-tests.yml      # Validator unit tests on PRs
+├── definitions/
+│   └── position_v1.yml                # CDO-owned contract (source of truth)
+└── validator/                         # Installable Python governance toolkit
+    ├── pyproject.toml
+    ├── meta_context_validator/
+    │   ├── semantic/
+    │   │   ├── inheritance.py         # Compile opt-in team semantic inheritance
+    │   │   ├── composition.py         # Compose validated team catalog
+    │   │   └── dbt_generator.py       # Generate native CDO SQL and YAML
+    │   ├── validation/
+    │   │   ├── contracts.py           # Enforce CDO Position interface
+    │   │   └── metric_context.py      # Metric Meta:Context rules
+    │   ├── cli.py                     # Validation CLI
+    │   ├── compile_semantics.py       # Existing python -m command
+    │   ├── compose_cdo.py             # Existing python -m command (compatibility)
+    │   ├── generate_cdo_dbt.py        # Existing python -m command (compatibility)
+    │   ├── semantic_compiler.py       # Legacy import compatibility
+    │   ├── contract_rules.py          # Legacy import compatibility
+    │   └── rules.py                   # Legacy import compatibility
+    └── tests/                         # Regression & backward compatibility tests
+.github/workflows/validator-tests.yml   # CI
 ```
+
+The new `semantic/` and `validation/` directories contain the implementations. The thin root modules preserve **existing** imports, `python -m` commands, and the `dbt-mc` CLI so currently pinned federated workflows remain compatible.
 
 ## The CDO Position contract
 
@@ -60,22 +69,13 @@ models:
 
 The compiler expands this to the inherited column definitions, semantic entities/dimensions, and metric formula before dbt parses the project; it also adds `config.meta.semantic_contract` with `implements: cdo.position` and `version: 1`. Team-local extra columns and metrics are allowed but cannot redeclare inherited names. Models without the `semantic_inheritance` opt-in are unchanged by the compiler and are not subjected to the CDO Position contract by the manifest validator.
 
-## CI and validation
+## CI and promotion
 
-**Validator repository:** [`validator-tests.yml`](.github/workflows/validator-tests.yml) installs the package and runs the full Python test suite.
+**Governance repository:** `validator-tests.yml` installs the package and runs its test suite whenever the governance repository changes.
 
-**Federated pull request CI** (defined in the *other* repository):
+**Federated repository:** Team A/C PRs to `main` run validation-only CI: compile inherited semantics, verify contracts and dbt parsing, and build staging models with native enforced contracts in an isolated Neon schema for eligible PRs. This does **not** generate or publish CDO snapshots.
 
-1. Checkout the federated PR and a pinned, reviewed commit of this repository.
-2. Install dbt, PostgreSQL adapter, and this validator; execute unit tests.
-3. Compile Team A/C `semantic_inheritance` in the runner checkout.
-4. Run `dbt parse --no-partial-parse` to produce `target/manifest.json` and `target/semantic_manifest.json`.
-5. Validate declared CDO implementations against the manifest and compose the versioned CDO team catalog.
-6. For same-repository PRs, connect to Neon PostgreSQL, seed Team A/C source data, then `dbt build` both staging models with native enforced contracts. The live database step is skipped for fork PRs.
-
-**Manifest validation is metadata validation**; the live `dbt build` checks actual SQL output and physical types. The current workflow does not certify financial accuracy, and it does not generate `catalog.json`.
-
-**Publishing is a separate, manually triggered workflow** in the federated repository. It compiles and validates the project and pushes expanded model YAML to the `generated/production` branch. That branch is not automatically a hosted dbt Semantic Layer deployment or Power BI integration.
+**Promotion:** A manually approved merge from federated `main` into `generated/production` triggers the consolidated promotion workflow (or a manual run on `main` can bootstrap a missing production branch). Promotion uses the same governance Python package to compose Team A/C into a temporary catalog, generate the native composite CDO SQL/YAML, validate, build the CDO view in Neon and commit the compiled output to `generated/production`. dbt Cloud deployment remains separate.
 
 ## Commands
 
@@ -112,7 +112,7 @@ python -m meta_context_validator.generate_cdo_dbt \
   --out models/semantic_models/team_cdo/generated
 ```
 
-The governance repository no longer publishes a persistent intermediate composition catalog. The federated Sync workflow owns snapshot generation and CDO PRs.
+The governance repository does not store a generated composition catalog. The federated consolidated promotion workflow owns native CDO output in `generated/production`.
 
 The compiler writes expanded YAML into the working copy: do **not** commit those files over Team A/C's source declarations. Use the federated publishing workflow to create deployment-ready YAML.
 

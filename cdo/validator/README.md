@@ -1,14 +1,30 @@
-# CDO semantic contract and Meta:Context validator
+# CDO governance Python toolkit
 
-Python package installed from `cdo/validator/`, providing:
+Installable Python package in `cdo/validator/` (distribution name `dbt-meta-context-validator`, import namespace `meta_context_validator`). Canonical modules are grouped by responsibility:
 
-| Component | Module | Purpose |
+| Area | Canonical module | Responsibility |
+|---|---|---|
+| Semantic inheritance | `semantic.inheritance` | Expand `semantic_inheritance.extends` into native dbt YAML |
+| Federated composition | `semantic.composition` | Validate Team A/C implementations and create a temporary catalog |
+| Native dbt generation | `semantic.dbt_generator` | Produce `cdo_enterprise_positions.sql` and `.yml` |
+| CDO contract validation | `validation.contracts` | Validate `manifest.json` against the CDO contract |
+| Metric Meta:Context | `validation.metric_context` | Validate metric context, warnings, and expectations |
+
+### Stable command entry points
+
+Existing Python module entry points are preserved for federated CI and deployment:
+
+
+
+| Component | Supported entry point | Purpose |
 |---|---|---|
 | Semantic inheritance compiler | `meta_context_validator.compile_semantics` | Expand team `semantic_inheritance.extends` to native dbt YAML before parsing |
 | CDO native dbt generator | `meta_context_validator.generate_cdo_dbt` | Generate combined CDO SQL and semantic YAML from a temporary validated catalog |
 | Contract validator | `meta_context_validator.contract_rules` | Check the compiled dbt manifest against the CDO registry |
 | Metric context validator | `meta_context_validator.rules` | Validate enterprise metric context, expectations, investigations, relationships, and decisions |
 | CLI | `dbt-mc validate` | Run context validation with optional contract checks |
+
+The legacy root imports (for example `meta_context_validator.contract_rules.validate_cdo_contract`) remain supported via compatibility wrappers. New code should import from the canonical `semantic.*` and `validation.*` modules.
 
 ## Installation
 
@@ -45,7 +61,7 @@ Generate native CDO artifacts with:
 python -m meta_context_validator.generate_cdo_dbt --catalog /tmp/current_cdo_catalog.yml --out models/semantic_models/team_cdo/generated
 ```
 
-`dbt-mc validate <path>` supports `--format json` and `--errors-only`. The `--contracts` and `--manifest` options must be supplied together.
+Both `dbt-mc validate <path>` (existing) and `cdo-validate validate <path>` (new alias) support `--format json` and `--errors-only`. The `--contracts` and `--manifest` options must be supplied together.
 
 The compiler changes model property YAML **in place**. A deployable copy is generated in the federated repository's manual publishing workflow, not committed into the federated source `main` by the compiler.
 

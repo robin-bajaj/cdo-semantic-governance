@@ -33,7 +33,7 @@ config:
         cdo.profit_loss: equity_profit_loss
 ```
 
-The [compiler](validator/meta_context_validator/semantic_compiler.py) expands CDO columns, entity/dimension properties and metrics in a temporary checkout, rejecting unsupported versions, duplicate column declarations and alias errors. The compiled YAML gains `config.meta.semantic_contract: {implements: cdo.position, version: 1}` for manifest-based validation. Nonparticipating models (no inheritance declaration) are left unchanged.
+The [compiler](validator/meta_context_validator/semantic/inheritance.py) expands CDO columns, entity/dimension properties and metrics in a temporary checkout, rejecting unsupported versions, duplicate column declarations and alias errors. The compiled YAML gains `config.meta.semantic_contract: {implements: cdo.position, version: 1}` for manifest-based validation. Nonparticipating models (no inheritance declaration) are left unchanged.
 
 ## Run the integration
 
@@ -64,7 +64,7 @@ python -m meta_context_validator.compose_cdo \
 
 Next, run `python -m meta_context_validator.generate_cdo_dbt --catalog /tmp/current_cdo_catalog.yml --out models/semantic_models/team_cdo/generated` to produce native dbt SQL/YAML. This output is versioned and reviewed in the federated repository, not stored as a catalog here.
 
-Use a disposable working checkout: compilation rewrites the source YAML in place. The federated PR workflow performs these operations on the Actions runner and builds the staging models with enforced native contracts against PostgreSQL. The separately triggered publish workflow commits expanded YAML into `generated/production`; it is **not** a hosted semantic-layer deployment.
+Use a disposable working checkout: compilation rewrites the source YAML in place. The federated PR workflow performs these operations on the Actions runner and builds the staging models with enforced native contracts against PostgreSQL. The combined promotion workflow commits expanded Team A/C and CDO YAML/SQL into `generated/production`; it is **not** a hosted semantic-layer deployment.
 
 See the [repository overview](../README.md) and [CLI documentation](validator/README.md).
 
