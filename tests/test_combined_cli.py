@@ -3,7 +3,7 @@ import json
 import yaml
 from click.testing import CliRunner
 
-from meta_context_validator.cli import main
+from cdo_governance.cli import main
 
 
 def run_validation(

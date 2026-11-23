@@ -4,8 +4,8 @@ import json
 import pytest
 import yaml
 
-from meta_context_validator.semantic.inheritance import compile_semantics
-from meta_context_validator.semantic.composition import compose_cdo
+from cdo_governance.semantic.inheritance import compile_semantics
+from cdo_governance.semantic.composition import compose_cdo
 from test_semantic_compiler import project
 
 

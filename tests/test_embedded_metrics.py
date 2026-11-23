@@ -1,4 +1,4 @@
-from meta_context_validator.cli import _extract_metrics
+from cdo_governance.cli import _extract_metrics
 
 
 def test_embedded_metric_extraction():

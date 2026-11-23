@@ -1,6 +1,6 @@
 from copy import deepcopy
 
-from meta_context_validator.validation.contracts import validate_cdo_contract
+from cdo_governance.validation.contracts import validate_cdo_contract
 
 
 CONTRACT = {

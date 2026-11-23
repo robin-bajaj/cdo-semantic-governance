@@ -2,7 +2,7 @@
 from copy import deepcopy
 import pytest
 import yaml
-from meta_context_validator.semantic.inheritance import compile_semantics
+from cdo_governance.semantic.inheritance import compile_semantics
 
 CDO = {
     "name": "cdo.position", "version": 1, "owner": "CDO",

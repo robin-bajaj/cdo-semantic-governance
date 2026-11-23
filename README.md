@@ -1,132 +1,78 @@
-# CDO Semantic Contract Validator
+# CDO Semantic Governance
 
-Centralized **CDO-owned semantic contracts, inheritance compilation, and governance validation** for the Federated dbt POC.
-
-The CDO publishes a custom, versioned business definition independently of the teams' physical SQL models. Team A and Team C opt in through `config.meta.semantic_inheritance`. A pre-parse compiler translates this custom declaration into native dbt model properties, metrics, and a contract implementation marker. dbt itself **does not natively support** our `semantic_inheritance.extends` syntax.
+The CDO owns the canonical Position interface, semantic inheritance rules, Team A/C composition, native dbt SQL/YAML generation, and contract/metric validation. This package provides a custom pre-dbt-parse extension; `semantic_inheritance.extends` is **not native dbt**.
 
 ## Repository layout
 
 ```text
-cdo/
-├── definitions/
+cdo-semantic-governance/
+├── contracts/
 │   └── position_v1.yml
-└── validator/
-    ├── pyproject.toml
-    ├── meta_context_validator/
-    │   ├── __init__.py
-    │   ├── cli.py                         # dbt-mc / cdo-validate
-    │   ├── semantic/
-    │   │   ├── inheritance.py             # Compile Team A/C inheritance
-    │   │   ├── composition.py             # Validated multi-team CDO catalog
-    │   │   └── dbt_generator.py           # Native dbt SQL/YAML generation
-    │   └── validation/
-    │       ├── contracts.py               # CDO contract validation
-    │       └── metric_context.py          # Metric governance checks
-    └── tests/
+├── src/
+│   └── cdo_governance/
+│       ├── __init__.py
+│       ├── cli.py
+│       ├── semantic/
+│       │   ├── __init__.py
+│       │   ├── inheritance.py
+│       │   ├── composition.py
+│       │   └── dbt_generator.py
+│       └── validation/
+│           ├── __init__.py
+│           ├── contracts.py
+│           └── metric_context.py
+├── tests/
+├── .github/workflows/governance-ci.yml
+├── pyproject.toml
+└── README.md
 ```
 
-Only the canonical implementation modules are retained; the former root-level compatibility wrappers have been removed. All federated caller modules must use `meta_context_validator.semantic.*` or `meta_context_validator.validation.*`.
+## Ownership and data flow
 
-## The CDO Position contract
+- **`contracts/position_v1.yml`**: CDO-governed interface (position_id, report_date, profit_loss, instrument_code), types, entities and `SUM(profit_loss)` semantics.
+- **`semantic/inheritance.py`**: expands participating Team A/C authored YAML to native dbt properties in a disposable working copy.
+- **`validation/contracts.py`**: checks the compiled dbt manifest against the contract. Non-participating team models remain outside this contract.
+- **`semantic/composition.py`**: composes validated Team A and Team C definitions into a custom catalog, preserving local extensions and aliases.
+- **`semantic/dbt_generator.py`**: generates native `cdo_enterprise_positions.sql` and `.yml` from the catalog.
+- **`validation/metric_context.py`**: optional Meta:Context metric checks, also available through `cdo-validate` / `dbt-mc`.
 
-The single source of truth is [`cdo/definitions/position_v1.yml`](cdo/definitions/position_v1.yml).
+All generated files belong to the federated dbt project's `generated/production` branch, not to this source repository. The inspectable custom composition catalog is kept at `artifacts/cdo/position_v1_composition.yml` outside dbt's `models/` directory.
 
-- Contract: `cdo.position`, version `1`; owner: CDO.
-- **`semantic_columns` is canonical**: required names, data types, entity and dimension roles are all declared in this one list; there is no separate `required_columns` mapping.
-- Required attributes: `position_id` (text), `report_date` (date/time dimension), `profit_loss` (numeric), `instrument_code` (integer).
-- Governed metric: `cdo.profit_loss` = `SUM(profit_loss)`; teams use independent aliases.
-- `require_native_contract: true`: participating models must enable `config.contract.enforced: true`.
-
-CDO governs the **interface and aggregation semantics**, not whether upstream P&L values are financially correct.
-
-## How Team A/C consumes the definition
-
-In the [Federated dbt POC](https://github.com/robin-bajaj/federated-semantic-poc), Team A/C source YAML contains a short opt-in declaration (abridged):
-
-```yaml
-models:
-  - name: stg_team_a_positions
-    config:
-      contract:
-        enforced: true
-      meta:
-        semantic_inheritance:
-          extends: cdo.position
-          version: 1
-          entity_aliases:
-            position: team_a_position
-          metric_aliases:
-            cdo.profit_loss: equity_profit_loss
-    semantic_model:
-      enabled: true
-```
-
-The compiler expands this to the inherited column definitions, semantic entities/dimensions, and metric formula before dbt parses the project; it also adds `config.meta.semantic_contract` with `implements: cdo.position` and `version: 1`. Team-local extra columns and metrics are allowed but cannot redeclare inherited names. Models without the `semantic_inheritance` opt-in are unchanged by the compiler and are not subjected to the CDO Position contract by the manifest validator.
-
-## CI and promotion
-
-**Governance repository:** `validator-tests.yml` installs the package and runs its test suite whenever the governance repository changes.
-
-**Federated repository:** Team A/C PRs to `main` run validation-only CI: compile inherited semantics, verify contracts and dbt parsing, and build staging models with native enforced contracts in an isolated Neon schema for eligible PRs. This does **not** generate or publish CDO snapshots.
-
-**Promotion:** A manually approved merge from federated `main` into `generated/production` triggers the consolidated promotion workflow (or a manual run on `main` can bootstrap a missing production branch). Promotion uses the same governance Python package to compose Team A/C into a temporary catalog, generate the native composite CDO SQL/YAML, validate, build the CDO view in Neon and commit the compiled output to `generated/production`. dbt Cloud deployment remains separate.
-
-## Commands
-
-Install from a checkout of this repository:
+## Installation and tests
 
 ```bash
-python -m pip install -e ./cdo/validator
-python -m pytest cdo/validator/tests -q
+python -m pip install -e . pytest
+python -m pytest tests -q
 ```
 
-From a **disposable federated dbt working copy**, with the paths adjusted as needed:
+The `governance-ci.yml` workflow runs these tests on PRs and pushes to `main`. It verifies governance code independently of the federated dbt repository, which pins an approved governance commit.
+
+## CLI from a disposable federated dbt project checkout
+
+Assuming this repository is checked out at `../contract-validator`:
 
 ```bash
-python -m meta_context_validator.semantic.inheritance \
-  --registry ../contract-validator/cdo/definitions/position_v1.yml \
+python -m cdo_governance.semantic.inheritance \
+  --registry ../contract-validator/contracts/position_v1.yml \
   --project .
 
 dbt parse --no-partial-parse
 
-python -m meta_context_validator.semantic.composition \
+python -m cdo_governance.semantic.composition \
   --project . \
-  --contract ../contract-validator/cdo/definitions/position_v1.yml \
+  --contract ../contract-validator/contracts/position_v1.yml \
   --manifest target/manifest.json \
   --require-semantic-model team_a_equity_positions \
   --require-semantic-model team_c_fi_positions \
   --output /tmp/current_cdo_catalog.yml
-```
 
-Generate the native dbt CDO SQL/YAML from the temporary catalog:
-
-```bash
-python -m meta_context_validator.semantic.dbt_generator \
+python -m cdo_governance.semantic.dbt_generator \
   --catalog /tmp/current_cdo_catalog.yml \
   --out models/semantic_models/team_cdo/generated
 ```
 
-The governance repository does not store a generated composition catalog. The federated consolidated promotion workflow persists the composed catalog under `artifacts/cdo/position_v1_composition.yml` and native dbt SQL/YAML in `generated/production`, not in authored `main`.
+`compose_cdo` refuses to emit the custom catalog inside `models/` because it is not native dbt syntax.
 
-The compiler writes expanded YAML into the working copy: do **not** commit those files over Team A/C's source declarations. Use the federated publishing workflow to create deployment-ready YAML.
+## Deployment boundary
 
-## What fails a PR?
-
-Examples: unsupported CDO parent/version, duplicate inherited columns, invalid metric aliases, missing declared required columns, mismatched declared column types, native model contract enforcement disabled, missing enterprise context metadata, or a physical SQL type mismatch during the live build.
-
-See [`cdo/README.md`](cdo/README.md) for a focused contract reference and [`cdo/validator/README.md`](cdo/validator/README.md) for the Python CLI.
-
-## Design boundaries
-
-- The registry format is **custom**, compiled into native dbt syntax; it is not an Apache OSI or native dbt semantic-model specification.
-- Independent model names are supported; CDO does not prescribe a team's staging model name.
-- Contract validation discovers opted-in implementations using `config.meta.semantic_contract.implements` in `manifest.json`. The CLI fails closed when no CDO implementation exists in the manifest it was asked to validate.
-- The optional Meta:Context CLI is retained as a separate utility, but it is not part of the active federated CDO validation or release path.
-- Legacy upstream research documents, authoring skill, example, and the obsolete metric-only generator have been removed from this POC repository. The active Meta:Context validator code and regression tests remain.
-
-## Links
-
-- [Federated dbt POC](https://github.com/robin-bajaj/federated-semantic-poc)
-- [CDO Position registry](cdo/definitions/position_v1.yml)
-- [Contract compiler](cdo/validator/meta_context_validator/semantic/inheritance.py)
-- [Manifest contract validator](cdo/validator/meta_context_validator/validation/contracts.py)
+Team A/C PRs run validation-only CI in the federated repository. A human-approved merge from `main` into `generated/production` triggers the consolidated promotion job: compile, compose, generate native CDO SQL/YAML, parse, build on Neon, and commit compiled Team A/C plus CDO outputs and custom catalog to the deployment branch. The hosted dbt Cloud deployment remains a separate action. Changes to this governance package must be promoted by explicitly updating the pinned revision used in federated CI and promotion.

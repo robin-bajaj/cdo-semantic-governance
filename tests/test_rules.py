@@ -9,7 +9,7 @@ corrected behavior: absent ≠ intentionally null.
 
 import copy
 
-from meta_context_validator.validation.metric_context import validate_metric
+from cdo_governance.validation.metric_context import validate_metric
 
 
 def _full_meta() -> dict:

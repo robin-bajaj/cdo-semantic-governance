@@ -1,6 +1,6 @@
 """Regression tests for the governance-owned native CDO dbt generator."""
 import yaml
-from meta_context_validator.semantic.dbt_generator import generate
+from cdo_governance.semantic.dbt_generator import generate
 
 
 def test_generate_native_cdo_from_two_team_catalog(tmp_path):

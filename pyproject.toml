@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dbt-meta-context-validator"
+name = "cdo-semantic-governance"
 version = "0.1.0"
 description = "CDO semantic inheritance, composition, native dbt generation and governance validation"
 readme = "README.md"
@@ -15,8 +15,8 @@ dependencies = [
 ]
 
 [project.scripts]
-dbt-mc = "meta_context_validator.cli:main"
-cdo-validate = "meta_context_validator.cli:main"
+dbt-mc = "cdo_governance.cli:main"
+cdo-validate = "cdo_governance.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
