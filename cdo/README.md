@@ -59,8 +59,10 @@ python -m meta_context_validator.compose_cdo \
   --manifest target/manifest.json \
   --require-semantic-model team_a_equity_positions \
   --require-semantic-model team_c_fi_positions \
-  --output generated/cdo/position/v1/cdo_enterprise_positions.yml
+  --output /tmp/current_cdo_catalog.yml
 ```
+
+Next, run `python -m meta_context_validator.generate_cdo_dbt --catalog /tmp/current_cdo_catalog.yml --out models/semantic_models/team_cdo/generated` to produce native dbt SQL/YAML. This output is versioned and reviewed in the federated repository, not stored as a catalog here.
 
 Use a disposable working checkout: compilation rewrites the source YAML in place. The federated PR workflow performs these operations on the Actions runner and builds the staging models with enforced native contracts against PostgreSQL. The separately triggered publish workflow commits expanded YAML into `generated/production`; it is **not** a hosted semantic-layer deployment.
 
