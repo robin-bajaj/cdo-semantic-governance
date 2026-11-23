@@ -1,7 +1,7 @@
 """CLI entrypoint for CDO Position inheritance compilation."""
 import argparse
 from pathlib import Path
-from .semantic_compiler import compile_semantics
+from .semantic.inheritance import compile_semantics
 
 def main():
     parser = argparse.ArgumentParser(description="Compile CDO inheritance to native dbt YAML")
