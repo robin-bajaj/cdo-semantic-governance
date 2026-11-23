@@ -7,8 +7,8 @@ from pathlib import Path
 import click
 import yaml
 
-from .rules import validate_metric
-from .contract_rules import validate_cdo_contract
+from .validation.metric_context import validate_metric
+from .validation.contracts import validate_cdo_contract
 
 
 def _find_yaml_files(path: Path) -> list[Path]:
