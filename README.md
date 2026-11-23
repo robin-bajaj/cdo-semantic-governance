@@ -9,29 +9,23 @@ The CDO publishes a custom, versioned business definition independently of the t
 ```text
 cdo/
 ├── definitions/
-│   └── position_v1.yml                # CDO-owned contract (source of truth)
-└── validator/                         # Installable Python governance toolkit
+│   └── position_v1.yml
+└── validator/
     ├── pyproject.toml
     ├── meta_context_validator/
+    │   ├── __init__.py
+    │   ├── cli.py                         # dbt-mc / cdo-validate
     │   ├── semantic/
-    │   │   ├── inheritance.py         # Compile opt-in team semantic inheritance
-    │   │   ├── composition.py         # Compose validated team catalog
-    │   │   └── dbt_generator.py       # Generate native CDO SQL and YAML
-    │   ├── validation/
-    │   │   ├── contracts.py           # Enforce CDO Position interface
-    │   │   └── metric_context.py      # Metric Meta:Context rules
-    │   ├── cli.py                     # Validation CLI
-    │   ├── compile_semantics.py       # Existing python -m command
-    │   ├── compose_cdo.py             # Existing python -m command (compatibility)
-    │   ├── generate_cdo_dbt.py        # Existing python -m command (compatibility)
-    │   ├── semantic_compiler.py       # Legacy import compatibility
-    │   ├── contract_rules.py          # Legacy import compatibility
-    │   └── rules.py                   # Legacy import compatibility
-    └── tests/                         # Regression & backward compatibility tests
-.github/workflows/validator-tests.yml   # CI
+    │   │   ├── inheritance.py             # Compile Team A/C inheritance
+    │   │   ├── composition.py             # Validated multi-team CDO catalog
+    │   │   └── dbt_generator.py           # Native dbt SQL/YAML generation
+    │   └── validation/
+    │       ├── contracts.py               # CDO contract validation
+    │       └── metric_context.py          # Metric governance checks
+    └── tests/
 ```
 
-The new `semantic/` and `validation/` directories contain the implementations. The thin root modules preserve **existing** imports, `python -m` commands, and the `dbt-mc` CLI so currently pinned federated workflows remain compatible.
+Only the canonical implementation modules are retained; the former root-level compatibility wrappers have been removed. All federated caller modules must use `meta_context_validator.semantic.*` or `meta_context_validator.validation.*`.
 
 ## The CDO Position contract
 
@@ -89,13 +83,13 @@ python -m pytest cdo/validator/tests -q
 From a **disposable federated dbt working copy**, with the paths adjusted as needed:
 
 ```bash
-python -m meta_context_validator.compile_semantics \
+python -m meta_context_validator.semantic.inheritance \
   --registry ../contract-validator/cdo/definitions/position_v1.yml \
   --project .
 
 dbt parse --no-partial-parse
 
-python -m meta_context_validator.compose_cdo \
+python -m meta_context_validator.semantic.composition \
   --project . \
   --contract ../contract-validator/cdo/definitions/position_v1.yml \
   --manifest target/manifest.json \
@@ -107,12 +101,12 @@ python -m meta_context_validator.compose_cdo \
 Generate the native dbt CDO SQL/YAML from the temporary catalog:
 
 ```bash
-python -m meta_context_validator.generate_cdo_dbt \
+python -m meta_context_validator.semantic.dbt_generator \
   --catalog /tmp/current_cdo_catalog.yml \
   --out models/semantic_models/team_cdo/generated
 ```
 
-The governance repository does not store a generated composition catalog. The federated consolidated promotion workflow owns native CDO output in `generated/production`.
+The governance repository does not store a generated composition catalog. The federated consolidated promotion workflow persists the composed catalog under `artifacts/cdo/position_v1_composition.yml` and native dbt SQL/YAML in `generated/production`, not in authored `main`.
 
 The compiler writes expanded YAML into the working copy: do **not** commit those files over Team A/C's source declarations. Use the federated publishing workflow to create deployment-ready YAML.
 
@@ -134,5 +128,5 @@ See [`cdo/README.md`](cdo/README.md) for a focused contract reference and [`cdo/
 
 - [Federated dbt POC](https://github.com/robin-bajaj/federated-semantic-poc)
 - [CDO Position registry](cdo/definitions/position_v1.yml)
-- [Contract compiler](cdo/validator/meta_context_validator/semantic_compiler.py)
-- [Manifest contract validator](cdo/validator/meta_context_validator/contract_rules.py)
+- [Contract compiler](cdo/validator/meta_context_validator/semantic/inheritance.py)
+- [Manifest contract validator](cdo/validator/meta_context_validator/validation/contracts.py)
