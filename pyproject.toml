@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cdo-semantic-governance"
+version = "0.1.0"
+description = "CDO semantic inheritance, composition, native dbt generation and governance validation"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = [
+    "pyyaml>=6.0",
+    "click>=8.0",
+]
+
+[project.scripts]
+dbt-mc = "cdo_governance.cli:main"
+cdo-validate = "cdo_governance.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
