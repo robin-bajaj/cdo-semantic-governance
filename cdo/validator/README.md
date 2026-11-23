@@ -61,7 +61,7 @@ Generate native CDO artifacts with:
 python -m meta_context_validator.generate_cdo_dbt --catalog /tmp/current_cdo_catalog.yml --out models/semantic_models/team_cdo/generated
 ```
 
-`dbt-mc validate <path>` supports `--format json` and `--errors-only`. The `--contracts` and `--manifest` options must be supplied together.
+Both `dbt-mc validate <path>` (existing) and `cdo-validate validate <path>` (new alias) support `--format json` and `--errors-only`. The `--contracts` and `--manifest` options must be supplied together.
 
 The compiler changes model property YAML **in place**. A deployable copy is generated in the federated repository's manual publishing workflow, not committed into the federated source `main` by the compiler.
 
