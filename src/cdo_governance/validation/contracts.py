@@ -125,7 +125,7 @@ def validate_cdo_contract(manifest: dict, contract: dict) -> list[str]:
                     f"Expected {expected_type}, got {actual_type}"
                 )
 
-        if contract.get("require_native_contract", False):
+        if contract.get("require_native_contract", "attributes" in contract):
             config = model.get("config") or {}
             native_contract = config.get("contract") or {}
             if not native_contract.get("enforced", False):

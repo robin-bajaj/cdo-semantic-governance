@@ -64,15 +64,19 @@ def _load_definitions(path):
         if not isinstance(metrics, list):
             raise ValueError(f"{file}: metrics must be a list")
         for m in metrics:
-            if not isinstance(m, dict) or not m.get("name") or not m.get("version"):
+            if not isinstance(m, dict) or not isinstance(m.get("name"), str) or not IDENTIFIER.fullmatch(m["name"]):
                 raise ValueError(f"{file}: invalid metric declaration")
-            formula = m.get("metric")
-            if not isinstance(formula, dict) or formula.get("type") != "simple":
+            if set(m) - {"name", "description", "type", "agg", "expr", "fill_nulls_with"}:
+                raise ValueError(f"{file}: metric must use flat CDO metric properties")
+            formula = m
+            if formula.get("type") != "simple":
                 raise ValueError(f"{file}: only simple metrics are currently supported")
             if formula.get("agg") not in {"sum", "count", "average", "min", "max", "count_distinct"}:
                 raise ValueError(f"{file}: invalid aggregation on {m['name']}")
             if formula.get("expr") not in required:
                 raise ValueError(f"{file}: metric {m['name']} references a non-standard column")
+        if len({m["name"] for m in metrics}) != len(metrics):
+            raise ValueError(f"{file}: duplicate CDO metric names")
         definitions[key] = spec
     return definitions
 
@@ -201,6 +205,11 @@ def _compile_model(model, definitions, path):
     metric_labels = inheritance.get("metric_labels") or {}
     if not isinstance(alias_metrics, dict) or not isinstance(metric_labels, dict):
         raise ValueError(f"{path}: metric aliases/labels must be mappings")
+    # The reference's CDO namespace comes from 'uses: cdo.position'.
+    # Both structured and legacy team declarations resolve to local metric names.
+    prefix = parent["name"].split(".")[0] + "."
+    alias_metrics = {(k[len(prefix):] if k.startswith(prefix) else k): v for k, v in alias_metrics.items()}
+    metric_labels = {(k[len(prefix):] if k.startswith(prefix) else k): v for k, v in metric_labels.items()}
     available_metric_names = {m["name"] for m in parent.get("metrics") or []}
     unexpected = (set(alias_metrics) | set(metric_labels)) - available_metric_names
     if unexpected:
@@ -212,17 +221,17 @@ def _compile_model(model, definitions, path):
             continue
         if not IDENTIFIER.fullmatch(name):
             raise ValueError(f"{path}: invalid metric alias {name}")
-        expression = metric["metric"].get("expr")
+        expression = metric.get("expr")
         if expression not in include:
             raise ValueError(f"{path}: metric {metric['name']} requires included attribute {expression}")
-        generated = deepcopy(metric["metric"])
+        generated = {k: deepcopy(v) for k, v in metric.items() if k not in {"name", "description"}}
         generated.update({
             "name": name,
             "label": metric_labels.get(metric["name"]) or metric.get("label") or name,
             "description": metric.get("description") or "",
             "config": {"meta": {"metric_contract": {
                 "implements": metric["name"],
-                "version": metric["version"],
+                "version": parent["version"],
             }}},
         })
         inherited_metrics.append(generated)
@@ -240,7 +249,10 @@ def _compile_model(model, definitions, path):
     expected = {"implements": parent["name"], "version": parent["version"]}
     if contract and any(contract.get(k) != v for k, v in expected.items()):
         raise ValueError(f"{path}: conflicting semantic_contract")
-    metadata["semantic_contract"] = {**expected, "included_attributes": deepcopy(include)}
+    # Store normalized selected metric identifiers so composition can validate
+    # both legacy and structured opt-ins without depending on authored syntax.
+    metadata["semantic_contract"] = {**expected, "included_attributes": deepcopy(include),
+                                     "included_metrics": list(alias_metrics)}
     config["meta"] = metadata
     model["config"] = config
     return True
