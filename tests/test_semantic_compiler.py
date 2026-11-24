@@ -195,7 +195,8 @@ def test_structured_cdo_uses_compiles_same_contract(tmp_path):
     assert cols["instrument_code"]["entity"]["type"] == "foreign"
     metric = next(x for x in result["metrics"] if x["name"] == "equity_profit_loss")
     assert (metric["agg"], metric["expr"]) == ("sum", "profit_loss")
-    assert result["config"]["meta"]["semantic_contract"]["implements"] == "cdo.position"\n    assert result["config"]["meta"]["semantic_contract"]["included_metrics"] == ["profit_loss"]
+    assert result["config"]["meta"]["semantic_contract"]["implements"] == "cdo.position"
+    assert result["config"]["meta"]["semantic_contract"]["included_metrics"] == ["profit_loss"]
 
 
 def test_structured_cdo_uses_rejects_parent_override(tmp_path):
