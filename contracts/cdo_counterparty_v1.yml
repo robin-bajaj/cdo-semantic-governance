@@ -2,8 +2,9 @@
 # No physical dbt model or join is implied by this declaration.
 name: cdo.counterparty
 version: 1
-uses: cdo.all
-uses_version: 1
+uses:
+  name: cdo.all
+  version: 1
 
 include:
   attributes:
