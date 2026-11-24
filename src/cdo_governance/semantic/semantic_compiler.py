@@ -46,8 +46,25 @@ def _normalize_cdo_declaration(model, path):
         location = "meta.cdo"
     else:
         return metadata.get("semantic_inheritance")
-    if not isinstance(declaration, dict) or set(declaration) != flat_keys:
-        raise ValueError(f"{path}: {location} must define uses, version, and include")
+    if not isinstance(declaration, dict):
+        raise ValueError(f"{path}: {location} must be a mapping")
+    nested_reference = isinstance(declaration.get("uses"), dict)
+    expected_keys = ({"uses", "include"} if nested_reference else flat_keys)
+    if set(declaration) != expected_keys:
+        raise ValueError(
+            f"{path}: {location} must define uses and include"
+            + (" (version belongs inside uses)" if nested_reference else " and version")
+        )
+    if nested_reference:
+        reference = declaration["uses"]
+        if set(reference) != {"name", "version"}:
+            raise ValueError(f"{path}: {location}.uses must contain exactly name and version")
+        uses_name, uses_version = reference["name"], reference["version"]
+    else:
+        uses_name, uses_version = declaration["uses"], declaration["version"]
+    if (not isinstance(uses_name, str) or not uses_name.strip()
+            or type(uses_version) is not int or uses_version < 1):
+        raise ValueError(f"{path}: invalid {location}.uses reference")
     included = declaration["include"]
     if not isinstance(included, dict) or set(included) != {"attributes", "metrics"}:
         raise ValueError(f"{path}: {location}.include must define attributes and metrics")
@@ -82,8 +99,8 @@ def _normalize_cdo_declaration(model, path):
                 raise ValueError(f"{path}: inherited metric label must be text")
             labels[name] = metric["label"]
     return {
-        "extends": declaration["uses"],
-        "version": declaration["version"],
+        "extends": uses_name,
+        "version": uses_version,
         "include": names,
         "context": {"columns": context, "agg_time_dimension": model.get("agg_time_dimension")},
         "metric_aliases": aliases,
