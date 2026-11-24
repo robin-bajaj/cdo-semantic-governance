@@ -142,3 +142,30 @@ config:
 ```
 
 This is a CDO-owned custom YAML convention; dbt does not natively interpret `uses`. The registry and semantic compiler still accept the prior flat reference syntax temporarily for existing consumers, but new authored files use the nested form. Do not also declare `uses_version` or a sibling `meta.version` when `uses.version` is present.
+
+
+## Optional team-facing attribute aliases
+
+A team can optionally give a CDO-owned **semantic entity or dimension** a different exposed name without changing the canonical business attribute or database column:
+
+```yaml
+config:
+  meta:
+    uses: {name: cdo.position, version: 1}
+    include:
+      attributes:
+        - name: position_id
+          alias: equity_position_id
+          entity: {type: primary}
+        - name: report_date
+          dimension: {type: time}
+          granularity: day
+        - name: profit_loss
+      metrics:
+        - name: total_profit_loss
+          alias: equity_profit_loss
+```
+
+The custom compiler converts `position_id` into a native dbt `columns` entry with `name: position_id` and `entity: {name: equity_position_id, type: primary}`. It never renames the physical database column, changes the CDO contract's attribute identifier or alters the metric formula. For time/categorical dimensions the same alias maps to `dimension.name`. Exactly one of `entity` or `dimension` must be present for an aliased attribute. If that semantic block already specifies `name`, it must match the alias; conflicting names fail validation rather than being silently overwritten. Unaliased fields continue to work as before. Aliasing standalone attributes without an entity/dimension is intentionally unsupported because there is no equivalent independent native semantic attribute name in this model structure.
+
+**Compatibility caution:** Changing an entity or dimension name changes what semantic consumers reference. It does not change source column names, staging SQL, dbt model contract column types, or the canonical CDO Position composition.

@@ -72,13 +72,30 @@ def _normalize_cdo_declaration(model, path):
         raise ValueError(f"{path}: {location} include attributes/metrics must be lists")
     names, context = [], {}
     for attribute in attrs:
-        if not isinstance(attribute, dict) or set(attribute) - {"name", "entity", "dimension", "granularity"}:
+        if not isinstance(attribute, dict) or set(attribute) - {"name", "alias", "entity", "dimension", "granularity"}:
             raise ValueError(f"{path}: invalid {location} attribute")
         name = attribute.get("name")
         if not isinstance(name, str) or not IDENTIFIER.fullmatch(name):
             raise ValueError(f"{path}: invalid {location} attribute name")
         names.append(name)
-        extra = {k: deepcopy(v) for k, v in attribute.items() if k != "name"}
+        extra = {k: deepcopy(v) for k, v in attribute.items() if k not in {"name", "alias"}}
+        alias = attribute.get("alias")
+        if alias is not None:
+            if not isinstance(alias, str) or not IDENTIFIER.fullmatch(alias):
+                raise ValueError(f"{path}: invalid {location} attribute alias for {name}")
+            # In dbt v1.12+ semantic names belong to entity.name / dimension.name,
+            # while columns[].name remains the actual, CDO-governed database column.
+            # Bare columns cannot expose independent semantic aliases via this syntax.
+            semantic_keys = [k for k in ("entity", "dimension") if k in extra]
+            if len(semantic_keys) != 1:
+                raise ValueError(f"{path}: attribute alias {name} requires exactly one entity or dimension")
+            semantic_key = semantic_keys[0]
+            semantic = extra[semantic_key]
+            if not isinstance(semantic, dict):
+                raise ValueError(f"{path}: {name} {semantic_key} must be a mapping")
+            if "name" in semantic and semantic["name"] != alias:
+                raise ValueError(f"{path}: {name} alias conflicts with {semantic_key}.name")
+            semantic["name"] = alias
         if extra:
             context[name] = extra
     if len(set(names)) != len(names):
