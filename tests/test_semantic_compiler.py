@@ -271,3 +271,64 @@ def test_flat_meta_uses_requires_complete_declaration(tmp_path):
     path.write_text(yaml.safe_dump(document))
     with pytest.raises(ValueError, match="must define uses, version, and include"):
         compile_semantics(root, registry)
+
+
+def test_nested_meta_uses_compiles_team_and_preserves_metric_alias(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    data = yaml.safe_load(path.read_text())
+    model = data["models"][0]
+    model["config"]["meta"] = {
+        "uses": {"name": "cdo.position", "version": 1},
+        "include": {
+            "attributes": [
+                {"name": "position_id", "entity": {"name": "team_a_position", "type": "primary"}},
+                {"name": "report_date", "dimension": {"type": "time"}, "granularity": "day"},
+                {"name": "profit_loss"},
+                {"name": "instrument_code", "entity": {"name": "instrument", "type": "foreign"}},
+            ],
+            "metrics": [
+                {"name": "total_profit_loss", "alias": "equity_profit_loss", "label": "Equity Profit and Loss"}
+            ],
+        },
+    }
+    model["agg_time_dimension"] = "report_date"
+    path.write_text(yaml.safe_dump(data))
+    assert len(compile_semantics(root, registry)) == 2
+    compiled = yaml.safe_load(path.read_text())["models"][0]
+    assert compiled["config"]["meta"]["semantic_contract"]["implements"] == "cdo.position"
+    assert compiled["config"]["meta"]["semantic_contract"]["version"] == 1
+    assert next(x for x in compiled["metrics"] if x["name"] == "equity_profit_loss")["expr"] == "profit_loss"
+
+
+@pytest.mark.parametrize("bad_reference", [
+    {"name": "cdo.position"},
+    {"name": "cdo.position", "version": "1"},
+    {"name": "cdo.position", "version": 0},
+    {"name": "cdo.position", "version": 1, "extra": True},
+])
+def test_nested_meta_uses_rejects_invalid_parent_reference(tmp_path, bad_reference):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    data = yaml.safe_load(path.read_text())
+    data["models"][0]["config"]["meta"] = {
+        "uses": bad_reference,
+        "include": {"attributes": [{"name": "profit_loss"}], "metrics": []},
+    }
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError, match="uses must contain exactly|invalid meta.uses reference"):
+        compile_semantics(root, registry)
+
+
+def test_nested_meta_uses_rejects_redundant_top_level_version(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    data = yaml.safe_load(path.read_text())
+    data["models"][0]["config"]["meta"] = {
+        "uses": {"name": "cdo.position", "version": 1},
+        "version": 1,
+        "include": {"attributes": [{"name": "profit_loss"}], "metrics": []},
+    }
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError, match="version belongs inside uses"):
+        compile_semantics(root, registry)
