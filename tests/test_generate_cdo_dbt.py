@@ -8,11 +8,18 @@ def test_generate_native_cdo_from_two_team_catalog(tmp_path):
         "catalog_format": "cdo-federated-semantic-catalog/v1",
         "contract": {"name": "cdo.position", "version": 1},
         "common_attributes": ["position_id", "report_date", "profit_loss", "instrument_code"],
+        "attribute_definitions": [
+            {"name": "position_id", "data_type": "text", "description": "Position identifier"},
+            {"name": "report_date", "data_type": "date", "description": "Reporting date"},
+            {"name": "profit_loss", "data_type": "numeric", "description": "Profit or loss"},
+            {"name": "instrument_code", "data_type": "integer", "description": "Instrument"},
+        ],
         "implementations": [
             {
                 "semantic_model": "team_a_equity_positions",
                 "source_model": "stg_team_a_positions",
                 "owner": "lob_team_a",
+                "included_attributes": ["position_id", "report_date", "profit_loss", "instrument_code"],
                 "columns": [
                     {"name": "position_id", "data_type": "text"},
                     {"name": "report_date", "data_type": "date"},
@@ -29,6 +36,7 @@ def test_generate_native_cdo_from_two_team_catalog(tmp_path):
                 "semantic_model": "team_c_fi_positions",
                 "source_model": "stg_team_c_positions",
                 "owner": "lob_team_c",
+                "included_attributes": ["position_id", "report_date", "profit_loss", "instrument_code"],
                 "columns": [
                     {"name": "position_id", "data_type": "text"},
                     {"name": "report_date", "data_type": "date"},
@@ -60,3 +68,37 @@ def test_generate_native_cdo_from_two_team_catalog(tmp_path):
     assert native["primary_entity"] == "cdo_position"
     metrics = {metric["name"] for metric in native["metrics"]}
     assert {"cdo_total_profit_loss", "cdo_equity_total_mtm", "cdo_fi_total_settled_cash"} <= metrics
+
+
+def test_sql_null_pads_optional_business_attribute(tmp_path):
+    catalog = {
+        "catalog_format": "cdo-federated-semantic-catalog/v1",
+        "contract": {"name": "cdo.position", "version": 1},
+        "common_attributes": ["position_id", "report_date", "profit_loss", "instrument_code"],
+        "attribute_definitions": [
+            {"name": "position_id", "data_type": "text", "description": "ID"},
+            {"name": "report_date", "data_type": "date", "description": "Date"},
+            {"name": "profit_loss", "data_type": "numeric", "description": "P&L"},
+            {"name": "instrument_code", "data_type": "integer", "description": "Instrument"},
+        ],
+        "implementations": [
+            {"semantic_model": "team_a_equity_positions", "source_model": "stg_team_a_positions",
+             "owner": "A", "included_attributes": ["position_id", "report_date", "profit_loss", "instrument_code"],
+             "columns": [{"name": k, "data_type": v} for k, v in
+                         [("position_id", "text"), ("report_date", "date"), ("profit_loss", "numeric"), ("instrument_code", "integer")]],
+             "metrics": []},
+            {"semantic_model": "team_c_fi_positions", "source_model": "stg_team_c_positions",
+             "owner": "C", "included_attributes": ["position_id", "report_date", "profit_loss"],
+             "columns": [{"name": k, "data_type": v} for k, v in
+                         [("position_id", "text"), ("report_date", "date"), ("profit_loss", "numeric")]],
+             "metrics": []},
+        ],
+    }
+    path = tmp_path / "catalog.yml"
+    path.write_text(yaml.safe_dump(catalog))
+    out = tmp_path / "native"
+    generate(path, out)
+    sql = (out / "cdo_enterprise_positions.sql").read_text()
+    assert "null::integer as instrument_code" in sql
+    native = yaml.safe_load((out / "cdo_enterprise_positions.yml").read_text())
+    assert next(c for c in native["models"][0]["columns"] if c["name"] == "instrument_code")["data_type"] == "integer"
