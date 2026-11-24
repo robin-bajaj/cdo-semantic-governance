@@ -40,8 +40,8 @@ def test_modifying_resolved_child_does_not_mutate_parent():
 
 
 def test_recursive_graph_supports_more_than_two_levels(tmp_path):
-    all_spec = yaml.safe_load((HERE / "all_v1.yml").read_text())
-    position = yaml.safe_load((HERE / "position_v1.yml").read_text())
+    all_spec = yaml.safe_load((HERE / "cdo_all_v1.yml").read_text())
+    position = yaml.safe_load((HERE / "cdo_position_v1.yml").read_text())
     child = {
         "name": "cdo.equity", "version": 1,
         "uses": "cdo.position", "uses_version": 1,
@@ -60,15 +60,15 @@ def test_recursive_graph_supports_more_than_two_levels(tmp_path):
 
 
 def test_unknown_parent_fails_closed(tmp_path):
-    leaf = yaml.safe_load((HERE / "position_v1.yml").read_text())
+    leaf = yaml.safe_load((HERE / "cdo_position_v1.yml").read_text())
     (tmp_path / "position.yml").write_text(yaml.safe_dump(leaf))
     with pytest.raises(ValueError, match="Missing CDO parent/version"):
         load_registry(tmp_path)
 
 
 def test_rejects_unknown_inherited_attribute(tmp_path):
-    parent = yaml.safe_load((HERE / "all_v1.yml").read_text())
-    child = yaml.safe_load((HERE / "position_v1.yml").read_text())
+    parent = yaml.safe_load((HERE / "cdo_all_v1.yml").read_text())
+    child = yaml.safe_load((HERE / "cdo_position_v1.yml").read_text())
     child["include"]["attributes"].append("unapproved_new_field")
     (tmp_path / "all.yml").write_text(yaml.safe_dump(parent))
     (tmp_path / "position.yml").write_text(yaml.safe_dump(child))
@@ -77,8 +77,8 @@ def test_rejects_unknown_inherited_attribute(tmp_path):
 
 
 def test_rejects_metric_missing_its_included_input(tmp_path):
-    parent = yaml.safe_load((HERE / "all_v1.yml").read_text())
-    child = yaml.safe_load((HERE / "position_v1.yml").read_text())
+    parent = yaml.safe_load((HERE / "cdo_all_v1.yml").read_text())
+    child = yaml.safe_load((HERE / "cdo_position_v1.yml").read_text())
     child["include"]["attributes"].remove("profit_loss")
     (tmp_path / "all.yml").write_text(yaml.safe_dump(parent))
     (tmp_path / "position.yml").write_text(yaml.safe_dump(child))
@@ -98,7 +98,7 @@ def test_rejects_circular_inheritance(tmp_path):
 
 
 def test_rejects_duplicate_concept_versions(tmp_path):
-    original = yaml.safe_load((HERE / "all_v1.yml").read_text())
+    original = yaml.safe_load((HERE / "cdo_all_v1.yml").read_text())
     for name in ("a.yml", "b.yml"):
         (tmp_path / name).write_text(yaml.safe_dump(original))
     with pytest.raises(ValueError, match="duplicate CDO contract"):
@@ -135,3 +135,11 @@ def test_existing_team_compilation_and_composition_accept_resolved_registry(tmp_
         model = yaml.safe_load((fresh_root / "models" / f"{team}.yml").read_text())["models"][0]
         assert model["config"]["meta"]["semantic_contract"]["implements"] == "cdo.position"
         assert model["metrics"][0]["expr"] == "profit_loss"
+
+
+def test_checked_in_contract_filenames_match_logical_names_and_versions():
+    """A published contract's path should identify its dotted name and version."""
+    for path in sorted(HERE.glob("*.yml")) + sorted(HERE.glob("*.yaml")):
+        contract = yaml.safe_load(path.read_text())
+        expected = contract["name"].replace(".", "_") + f"_v{contract['version']}" + path.suffix
+        assert path.name == expected, f"{path.name} should be {expected}"
