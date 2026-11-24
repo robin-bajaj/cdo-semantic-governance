@@ -20,66 +20,13 @@ def _read_yaml(path):
     return data
 
 
-def _definition_files(path):
-    path = Path(path)
-    if path.is_dir():
-        files = sorted(path.rglob("*.yml")) + sorted(path.rglob("*.yaml"))
-    elif path.is_file():
-        files = [path]
-    else:
-        files = []
-    if not files:
-        raise ValueError(f"No CDO definition files at {path}")
-    return files
+# Resolve the complete CDO contract graph before expanding team metadata.
+# A single file remains supported for legacy, self-contained test fixtures.
+from .registry import load_registry
 
 
 def _load_definitions(path):
-    definitions = {}
-    for file in _definition_files(path):
-        spec = _read_yaml(file)
-        key = (spec.get("name"), str(spec.get("version")))
-        if not key[0] or key in definitions:
-            raise ValueError(f"{file}: missing or duplicated CDO name/version")
-        columns = spec.get("attributes")
-        if "semantic_columns" in spec or "required_columns" in spec:
-            raise ValueError(f"{file}: use attributes only, not semantic_columns/required_columns")
-        if not isinstance(columns, list) or not columns:
-            raise ValueError(f"{file}: expected non-empty attributes")
-        names = []
-        for col in columns:
-            if not isinstance(col, dict):
-                raise ValueError(f"{file}: invalid inherited column")
-            name, dtype = col.get("name"), col.get("data_type")
-            if not isinstance(name, str) or not name.strip():
-                raise ValueError(f"{file}: invalid inherited column name")
-            if not isinstance(dtype, str) or not dtype.strip():
-                raise ValueError(f"{file}: column {name} requires data_type")
-            if set(col) != {"name", "data_type", "description"} or not isinstance(col.get("description"), str):
-                raise ValueError(f"{file}: attribute {name} must contain only name, data_type and description")
-            names.append(name)
-        if len(set(names)) != len(names):
-            raise ValueError(f"{file}: duplicate CDO attribute names")
-        required = set(names)
-        metrics = spec.get("metrics") or []
-        if not isinstance(metrics, list):
-            raise ValueError(f"{file}: metrics must be a list")
-        for m in metrics:
-            if not isinstance(m, dict) or not isinstance(m.get("name"), str) or not IDENTIFIER.fullmatch(m["name"]):
-                raise ValueError(f"{file}: invalid metric declaration")
-            if set(m) - {"name", "description", "type", "agg", "expr", "fill_nulls_with"}:
-                raise ValueError(f"{file}: metric must use flat CDO metric properties")
-            formula = m
-            if formula.get("type") != "simple":
-                raise ValueError(f"{file}: only simple metrics are currently supported")
-            if formula.get("agg") not in {"sum", "count", "average", "min", "max", "count_distinct"}:
-                raise ValueError(f"{file}: invalid aggregation on {m['name']}")
-            if formula.get("expr") not in required:
-                raise ValueError(f"{file}: metric {m['name']} references a non-standard column")
-        if len({m["name"] for m in metrics}) != len(metrics):
-            raise ValueError(f"{file}: duplicate CDO metric names")
-        definitions[key] = spec
-    return definitions
-
+    return load_registry(path)
 
 
 def _normalize_cdo_declaration(model, path):
@@ -208,7 +155,7 @@ def _compile_model(model, definitions, path):
         additional_names.add(col["name"])
     model["columns"] = inherited_columns + deepcopy(local_columns)
 
-    # Keep metric contracts in position_v1.yml. Existing team metric aliases
+    # Keep metric contracts in the resolved cdo.position definition. Team aliases
     # opt in to metrics, and their referenced attributes must be whitelisted.
     alias_metrics = inheritance.get("metric_aliases") or {}
     metric_labels = inheritance.get("metric_labels") or {}
@@ -261,7 +208,8 @@ def _compile_model(model, definitions, path):
     # Store normalized selected metric identifiers so composition can validate
     # both legacy and structured opt-ins without depending on authored syntax.
     metadata["semantic_contract"] = {**expected, "included_attributes": deepcopy(include),
-                                     "included_metrics": list(alias_metrics)}
+                                     "included_metrics": list(alias_metrics),
+                                     "lineage": deepcopy(parent.get("lineage") or [])}
     config["meta"] = metadata
     model["config"] = config
     return True

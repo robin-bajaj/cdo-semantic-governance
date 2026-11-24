@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from ..validation.contracts import validate_cdo_contract
+from .registry import resolve_contract
 
 
 def _load(path):
@@ -47,7 +48,8 @@ def compose_cdo(project_path, contract_path, manifest_path, output_path,
     This generator does not create SQL or a dbt-native combined semantic model.
     """
     project_path, output_path = Path(project_path), Path(output_path)
-    contract = _load(contract_path)
+    # Compose against the same fully resolved Position contract as the compiler.
+    contract = resolve_contract(contract_path, 'cdo.position', 1)
     manifest = _load(manifest_path)
     problems = validate_cdo_contract(manifest, contract)
     if problems:
@@ -135,6 +137,7 @@ def compose_cdo(project_path, contract_path, manifest_path, output_path,
         "catalog_format": "cdo-federated-semantic-catalog/v1",
         "name": "cdo_enterprise_positions",
         "contract": {"name": contract["name"], "version": contract["version"]},
+        "contract_lineage": deepcopy(contract.get("lineage") or []),
         "owner": contract.get("owner", "CDO"),
         "description": "Composed semantic catalog; execution/routing must be implemented separately.",
         "common_attributes": [field for field in required if any(field in entry["included_attributes"] for entry in implementations)],
