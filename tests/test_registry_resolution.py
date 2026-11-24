@@ -44,7 +44,7 @@ def test_recursive_graph_supports_more_than_two_levels(tmp_path):
     position = yaml.safe_load((HERE / "cdo_position_v1.yml").read_text())
     child = {
         "name": "cdo.equity", "version": 1,
-        "uses": "cdo.position", "uses_version": 1,
+        "uses": {"name": "cdo.position", "version": 1},
         "include": {"attributes": ["position_id", "profit_loss"],
                     "metrics": ["total_profit_loss"]},
     }
@@ -87,9 +87,9 @@ def test_rejects_metric_missing_its_included_input(tmp_path):
 
 
 def test_rejects_circular_inheritance(tmp_path):
-    a = {"name": "cdo.a", "version": 1, "uses": "cdo.b", "uses_version": 1,
+    a = {"name": "cdo.a", "version": 1, "uses": {"name": "cdo.b", "version": 1},
          "include": {"attributes": ["position_id"], "metrics": []}}
-    b = {"name": "cdo.b", "version": 1, "uses": "cdo.a", "uses_version": 1,
+    b = {"name": "cdo.b", "version": 1, "uses": {"name": "cdo.a", "version": 1},
          "include": {"attributes": ["position_id"], "metrics": []}}
     for spec in (a, b):
         (tmp_path / (spec["name"] + ".yml")).write_text(yaml.safe_dump(spec))
@@ -143,3 +143,36 @@ def test_checked_in_contract_filenames_match_logical_names_and_versions():
         contract = yaml.safe_load(path.read_text())
         expected = contract["name"].replace(".", "_") + f"_v{contract['version']}" + path.suffix
         assert path.name == expected, f"{path.name} should be {expected}"
+
+
+def test_nested_parent_reference_is_valid_in_both_cdo_concepts():
+    for filename in ("cdo_position_v1.yml", "cdo_counterparty_v1.yml"):
+        data = yaml.safe_load((HERE / filename).read_text())
+        assert data["uses"] == {"name": "cdo.all", "version": 1}
+        assert "uses_version" not in data
+
+
+@pytest.mark.parametrize("bad_reference", [
+    {"name": "cdo.all"},
+    {"name": "cdo.all", "version": "1"},
+    {"name": "cdo.all", "version": 0},
+    {"name": "cdo.all", "version": 1, "extra": True},
+])
+def test_nested_parent_reference_rejects_invalid_metadata(tmp_path, bad_reference):
+    parent = yaml.safe_load((HERE / "cdo_all_v1.yml").read_text())
+    child = yaml.safe_load((HERE / "cdo_position_v1.yml").read_text())
+    child["uses"] = bad_reference
+    (tmp_path / "all.yml").write_text(yaml.safe_dump(parent))
+    (tmp_path / "position.yml").write_text(yaml.safe_dump(child))
+    with pytest.raises(ValueError, match="invalid parent reference|uses must contain exactly"):
+        load_registry(tmp_path)
+
+
+def test_nested_parent_reference_rejects_mixed_legacy_version(tmp_path):
+    parent = yaml.safe_load((HERE / "cdo_all_v1.yml").read_text())
+    child = yaml.safe_load((HERE / "cdo_position_v1.yml").read_text())
+    child["uses_version"] = 1
+    (tmp_path / "all.yml").write_text(yaml.safe_dump(parent))
+    (tmp_path / "position.yml").write_text(yaml.safe_dump(child))
+    with pytest.raises(ValueError, match="invalid inherited-contract structure"):
+        load_registry(tmp_path)

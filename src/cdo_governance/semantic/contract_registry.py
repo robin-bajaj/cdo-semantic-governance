@@ -120,10 +120,20 @@ def load_registry(path):
         visiting.append(key)
         try:
             if "uses" in spec or "uses_version" in spec or "include" in spec:
-                if set(spec) != {"name", "version", "uses", "uses_version", "include"}:
+                nested_reference = isinstance(spec.get("uses"), dict)
+                expected = ({"name", "version", "uses", "include"} if nested_reference
+                            else {"name", "version", "uses", "uses_version", "include"})
+                if set(spec) != expected:
                     raise ValueError(f"{location}: invalid inherited-contract structure")
-                parent_name, parent_version = spec["uses"], spec["uses_version"]
-                if not isinstance(parent_name, str) or type(parent_version) is not int:
+                if nested_reference:
+                    reference = spec["uses"]
+                    if set(reference) != {"name", "version"}:
+                        raise ValueError(f"{location}: uses must contain exactly name and version")
+                    parent_name, parent_version = reference["name"], reference["version"]
+                else:
+                    parent_name, parent_version = spec["uses"], spec["uses_version"]
+                if (not isinstance(parent_name, str) or not CONCEPT.fullmatch(parent_name)
+                        or type(parent_version) is not int or parent_version < 1):
                     raise ValueError(f"{location}: invalid parent reference")
                 parent = resolve((parent_name, str(parent_version)))
                 incl = spec["include"]
