@@ -38,7 +38,7 @@ cdo-semantic-governance/
 | `total_profit_loss` | Central metric identifier, computed as `SUM(profit_loss)` |
 | `profit_loss` | Governed underlying numeric attribute |
 
-Contract filenames follow `<concept_namespace>_<concept_name>_v<version>.yml`. The dotted names in `name:` and `uses:` remain the stable logical identifiers; filenames are merely their locations.
+Contract filenames follow `<concept_namespace>_<concept_name>_v<version>.yml`. The dotted names in `name:` and `uses.name:` remain the stable logical identifiers; filenames are merely their locations.
 
 ## How inheritance works
 
@@ -53,7 +53,7 @@ cdo.all v1
 
 `cdo.all` defines common attributes and the P&L metric **once**. `cdo.position` explicitly selects `position_id`, `report_date`, `profit_loss`, `instrument_code` and `total_profit_loss`. `cdo.counterparty` independently selects `counterparty_id`, `counterparty_name`, and `counterparty_type`.
 
-The Team A/C models opt in with `config.meta.uses: cdo.position`, `version: 1` and `include.attributes`/`include.metrics`. The custom Python compiler resolves the pinned `cdo.position → cdo.all` chain **before** dbt parses the model, then applies the team's entity/dimension mappings and metric aliases. **Native dbt does not implement this custom inheritance mechanism.** An unrelated dbt model without these metadata declarations is left alone.
+The Team A/C models opt in with `config.meta.uses.name: cdo.position`, `config.meta.uses.version: 1`, and `include.attributes`/`include.metrics`. The custom Python compiler resolves the pinned `cdo.position → cdo.all` chain **before** dbt parses the model, then applies the team's entity/dimension mappings and metric aliases. **Native dbt does not implement this custom inheritance mechanism.** An unrelated dbt model without these metadata declarations is left alone.
 
 The recursive registry rejects missing parents, circular dependencies, duplicate contract versions, unknown selected fields, missing metric input attributes, invalid formulas and conflicting definitions. Team model contracts are physically enforced by `dbt build` in configured CI runs. Published contract versions should be treated as immutable and protected through approval and branch policies.
 
@@ -101,3 +101,44 @@ The `cdo.counterparty` contract is intentionally **logical only**. It does not c
 Only the documented implementation modules are supported: `cdo_governance.semantic.contract_registry`, `cdo_governance.semantic.semantic_compiler`, `cdo_governance.semantic.position_composer`, `cdo_governance.semantic.position_dbt_generator`, and `cdo_governance.validation.contract_validator`. Legacy module shims (`semantic.registry`, `semantic.inheritance`, `semantic.composition`, `semantic.dbt_generator`, and `validation.contracts`) were removed after migrating the known federated CI and promotion workflows.
 
 **Breaking change:** External consumers still importing or invoking those old paths must migrate to the canonical names. The separately maintained metric-context validator and the existing `dbt-mc` CLI alias are not part of this removal.
+
+
+## Versioned parent references
+
+Both logical concept contracts and team-authored model metadata use the same nested reference shape, while `name` and `version` at the root identify the current contract itself:
+
+```yaml
+# cdo_position_v1.yml: parent registry reference
+name: cdo.position
+version: 1
+uses:
+  name: cdo.all
+  version: 1
+include:
+  attributes: [position_id, report_date, profit_loss, instrument_code]
+  metrics: [total_profit_loss]
+```
+
+```yaml
+# Team A/C model: parent business contract reference
+config:
+  meta:
+    uses:
+      name: cdo.position
+      version: 1
+    include:
+      attributes:
+        - name: position_id
+          entity: {name: team_a_position, type: primary}
+        - name: report_date
+          dimension: {type: time}
+          granularity: day
+        - name: profit_loss
+        - name: instrument_code
+          entity: {name: instrument, type: foreign}
+      metrics:
+        - name: total_profit_loss
+          alias: equity_profit_loss
+```
+
+This is a CDO-owned custom YAML convention; dbt does not natively interpret `uses`. The registry and semantic compiler still accept the prior flat reference syntax temporarily for existing consumers, but new authored files use the nested form. Do not also declare `uses_version` or a sibling `meta.version` when `uses.version` is present.
