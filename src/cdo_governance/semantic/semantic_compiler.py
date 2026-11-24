@@ -51,10 +51,9 @@ def _normalize_cdo_declaration(model, path):
     nested_reference = isinstance(declaration.get("uses"), dict)
     expected_keys = ({"uses", "include"} if nested_reference else flat_keys)
     if set(declaration) != expected_keys:
-        raise ValueError(
-            f"{path}: {location} must define uses and include"
-            + (" (version belongs inside uses)" if nested_reference else " and version")
-        )
+        if nested_reference:
+            raise ValueError(f"{path}: {location} must define uses and include (version belongs inside uses)")
+        raise ValueError(f"{path}: {location} must define uses, version, and include")
     if nested_reference:
         reference = declaration["uses"]
         if set(reference) != {"name", "version"}:
