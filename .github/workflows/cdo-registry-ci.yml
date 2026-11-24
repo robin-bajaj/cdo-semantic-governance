@@ -24,6 +24,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e . pytest
       - name: Validate all contract definitions and recursive dependencies
-        run: python -m cdo_governance.semantic.registry --registry contracts
+        run: python -m cdo_governance.semantic.contract_registry --registry contracts
       - name: Run complete governance regression suite
         run: python -m pytest tests -q
