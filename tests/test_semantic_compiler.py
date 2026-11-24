@@ -12,7 +12,7 @@ CDO = {
         {"name": "profit_loss", "data_type": "numeric", "description": "P&L"},
         {"name": "instrument_code", "data_type": "integer", "description": "Instrument"},
     ],
-    "metrics": [{"name": "profit_loss", "description": "Profit and Loss",
+    "metrics": [{"name": "total_profit_loss", "description": "Profit and Loss",
                  "type": "simple", "agg": "sum", "expr": "profit_loss", "fill_nulls_with": 0}],
 }
 
@@ -35,8 +35,8 @@ def project(tmp_path):
                             "instrument_code": {"entity": {"name": "instrument", "type": "foreign"}},
                         },
                     },
-                    "metric_aliases": {"profit_loss": f"{team}_profit_loss"},
-                    "metric_labels": {"profit_loss": f"{team} Profit and Loss"}
+                    "metric_aliases": {"total_profit_loss": f"{team}_profit_loss"},
+                    "metric_labels": {"total_profit_loss": f"{team} Profit and Loss"}
                 }
             }},
             "semantic_model": {"enabled": True, "name": f"{team}_positions"},
@@ -180,7 +180,7 @@ def test_structured_cdo_uses_compiles_same_contract(tmp_path):
                     {"name": "profit_loss"},
                     {"name": "instrument_code", "entity": {"name": "instrument", "type": "foreign"}},
                 ],
-                "metrics": [{"name": "profit_loss", "alias": "equity_profit_loss", "label": "Equity Profit and Loss"}],
+                "metrics": [{"name": "total_profit_loss", "alias": "equity_profit_loss", "label": "Equity Profit and Loss"}],
             },
         }
     }
@@ -196,7 +196,7 @@ def test_structured_cdo_uses_compiles_same_contract(tmp_path):
     metric = next(x for x in result["metrics"] if x["name"] == "equity_profit_loss")
     assert (metric["agg"], metric["expr"]) == ("sum", "profit_loss")
     assert result["config"]["meta"]["semantic_contract"]["implements"] == "cdo.position"
-    assert result["config"]["meta"]["semantic_contract"]["included_metrics"] == ["profit_loss"]
+    assert result["config"]["meta"]["semantic_contract"]["included_metrics"] == ["total_profit_loss"]
 
 
 def test_structured_cdo_uses_rejects_parent_override(tmp_path):
