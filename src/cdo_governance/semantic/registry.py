@@ -34,13 +34,15 @@ def _validate_attributes(attributes, context):
         raise ValueError(f"{context}: expected non-empty attributes")
     seen = set()
     for attr in attributes:
+        if isinstance(attr, dict) and "data_type" not in attr and attr.get("name"):
+            raise ValueError(f"{context}: attribute {attr['name']} requires data_type")
         if not isinstance(attr, dict) or set(attr) != {"name", "data_type", "description"}:
             raise ValueError(f"{context}: attributes must have name, data_type, description only")
         name = attr["name"]
         if not isinstance(name, str) or not IDENTIFIER.fullmatch(name):
             raise ValueError(f"{context}: invalid attribute name")
         if name in seen:
-            raise ValueError(f"{context}: duplicate attribute {name}")
+            raise ValueError(f"{context}: duplicate CDO attribute names ({name})")
         seen.add(name)
         if not isinstance(attr["data_type"], str) or not attr["data_type"].strip():
             raise ValueError(f"{context}: attribute {name} requires data_type")
@@ -141,6 +143,8 @@ def load_registry(path):
                 output["lineage"] = deepcopy(parent.get("lineage") or []) + [
                     {"name": parent["name"], "version": parent["version"]}]
             else:
+                if "required_columns" in spec or "semantic_columns" in spec:
+                    raise ValueError(f"{location}: use attributes only, not required_columns/semantic_columns")
                 if set(spec) - {"name", "version", "description", "owner", "attributes", "metrics", "require_native_contract"}:
                     raise ValueError(f"{location}: unsupported contract properties")
                 attrs = deepcopy(spec.get("attributes"))
