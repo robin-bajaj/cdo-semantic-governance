@@ -57,7 +57,7 @@ def compose_cdo(project_path, contract_path, manifest_path, output_path,
     implementations = []
     metric_names = set()
     seen_semantics = set()
-    required = {c["name"]: c for c in contract["semantic_columns"]}
+    required = {c["name"]: c for c in contract["attributes"]}
     for node in sorted((manifest.get("nodes") or {}).values(), key=lambda n: n.get("unique_id", "")):
         if node.get("resource_type") != "model":
             continue
@@ -77,24 +77,22 @@ def compose_cdo(project_path, contract_path, manifest_path, output_path,
         if semantic["name"] in seen_semantics:
             raise ValueError(f"Duplicate semantic model name: {semantic['name']}")
         seen_semantics.add(semantic["name"])
-        if model.get("agg_time_dimension") != contract.get("agg_time_dimension"):
-            raise ValueError(f"{name}: incorrect aggregation time dimension")
+        included = marker.get("included_attributes")
+        if (not isinstance(included, list) or not included or
+                len(included) != len(set(included)) or set(included) - set(required)):
+            raise ValueError(f"{name}: invalid selected business attributes")
         columns = model.get("columns") or []
         col_map = {c["name"]: c for c in columns}
         if len(col_map) != len(columns):
             raise ValueError(f"{name}: duplicate compiled columns")
-        for field, standard in required.items():
+        for field in included:
             if field not in col_map:
-                raise ValueError(f"{name}: missing compiled semantic column {field}")
-            for prop in ("dimension", "granularity"):
-                if prop in standard and col_map[field].get(prop) != standard[prop]:
-                    raise ValueError(f"{name}: {field} differs in {prop}")
-            if "entity" in standard:
-                expected_entity = deepcopy(standard["entity"])
-                aliases = ((model.get("config") or {}).get("meta") or {}).get("semantic_inheritance", {}).get("entity_aliases") or {}
-                expected_entity["name"] = aliases.get(expected_entity["name"], expected_entity["name"])
-                if col_map[field].get("entity") != expected_entity:
-                    raise ValueError(f"{name}: {field} entity differs from CDO alias mapping")
+                raise ValueError(f"{name}: missing compiled CDO attribute {field}")
+            expected_type = required[field]["data_type"]
+            if col_map[field].get("data_type") != expected_type:
+                raise ValueError(f"{name}: incorrect type for included attribute {field}")
+        # Entity and dimension roles are intentionally *team-owned*, never
+        # inferred from the business attribute dictionary.
         metrics = model.get("metrics") or []
         for m in metrics:
             if not m.get("name") or m["name"] in metric_names:
@@ -112,8 +110,9 @@ def compose_cdo(project_path, contract_path, manifest_path, output_path,
                     if m.get(prop) != parent["metric"].get(prop):
                         raise ValueError(f"{name}: inherited metric {m['name']} overrides {prop}")
         expected_metrics = {m["name"] for m in contract.get("metrics") or []}
-        if inherited_metric_names != expected_metrics:
-            raise ValueError(f"{name}: not all CDO metric definitions inherited")
+        opted_metric_names = set(((model.get("config") or {}).get("meta") or {}).get("semantic_inheritance", {}).get("metric_aliases") or {})
+        if inherited_metric_names != opted_metric_names or inherited_metric_names - expected_metrics:
+            raise ValueError(f"{name}: inherited metrics do not match selected metric aliases")
 
         owner = (model.get("config") or {}).get("group") or name
         implementations.append({
@@ -121,8 +120,8 @@ def compose_cdo(project_path, contract_path, manifest_path, output_path,
             "semantic_model": semantic["name"],
             "owner": owner,
             "source_definition": str(path.relative_to(project_path)),
-            "entity_aliases": deepcopy(((model.get("config") or {}).get("meta") or {}).get("semantic_inheritance", {}).get("entity_aliases") or {}),
-            "agg_time_dimension": model["agg_time_dimension"],
+            "included_attributes": deepcopy(included),
+            "agg_time_dimension": model.get("agg_time_dimension"),
             "columns": deepcopy(columns),
             "metrics": deepcopy(metrics),
         })
@@ -138,7 +137,8 @@ def compose_cdo(project_path, contract_path, manifest_path, output_path,
         "contract": {"name": contract["name"], "version": contract["version"]},
         "owner": contract.get("owner", "CDO"),
         "description": "Composed semantic catalog; execution/routing must be implemented separately.",
-        "common_attributes": list(required),
+        "common_attributes": [field for field in required if any(field in entry["included_attributes"] for entry in implementations)],
+        "attribute_definitions": deepcopy(contract["attributes"]),
         "implementations": implementations,
     }
     # Never overwrite project-authored semantic definitions.
