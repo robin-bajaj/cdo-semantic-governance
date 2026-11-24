@@ -97,7 +97,7 @@ def test_missing_semantic_column_type_rejected(tmp_path):
 def test_duplicate_semantic_column_rejected(tmp_path):
     root, central = project(tmp_path)
     definition = deepcopy(CDO)
-    definition["semantic_columns"].append(deepcopy(definition["semantic_columns"][0]))
+    definition["attributes"].append(deepcopy(definition["attributes"][0]))
     central.write_text(yaml.safe_dump(definition))
     with pytest.raises(ValueError, match="duplicate CDO attribute names"):
         compile_semantics(root, central)
