@@ -15,7 +15,9 @@ dependencies = [
 ]
 
 [project.scripts]
+# Legacy alias retained for integrations that still invoke the earlier CLI name.
 dbt-mc = "cdo_governance.cli:main"
+# Preferred validation command; both names use the same supported entry point.
 cdo-validate = "cdo_governance.cli:main"
 
 [tool.setuptools.packages.find]

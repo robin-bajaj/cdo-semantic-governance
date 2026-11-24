@@ -12,12 +12,12 @@ cdo-semantic-governance/
 │   └── cdo_counterparty_v1.yml  # cdo.counterparty v1: selects from cdo.all
 ├── src/cdo_governance/
 │   ├── semantic/
-│   │   ├── registry.py          # Resolve/validate versioned concept dependencies
-│   │   ├── inheritance.py       # Expand team-authored metadata into native dbt YAML
-│   │   ├── composition.py       # Validate and compose Team A/C Position metadata
-│   │   └── dbt_generator.py     # Generate native CDO Position dbt SQL/YAML
+│   │   ├── contract_registry.py # Resolve/validate versioned concept dependencies
+│   │   ├── semantic_compiler.py # Expand team-authored metadata into native dbt YAML
+│   │   ├── position_composer.py # Validate and compose Team A/C Position metadata
+│   │   └── position_dbt_generator.py # Generate native CDO Position dbt SQL/YAML
 │   └── validation/
-│       ├── contracts.py         # Check compiled model contract compliance
+│       ├── contract_validator.py # Check compiled model contract compliance
 │       └── metric_context.py    # Optional additional metric-governance checks
 ├── tests/
 ├── .github/workflows/
@@ -61,20 +61,20 @@ The recursive registry rejects missing parents, circular dependencies, duplicate
 
 ```bash
 python -m pip install -e . pytest
-python -m cdo_governance.semantic.registry --registry contracts
+python -m cdo_governance.semantic.contract_registry --registry contracts
 python -m pytest tests -q
 ```
 
 When compiling from the **federated** dbt project checkout, supply the **whole contracts directory**, not one leaf contract file:
 
 ```bash
-python -m cdo_governance.semantic.inheritance \
+python -m cdo_governance.semantic.semantic_compiler \
   --registry ../cdo-governance/contracts \
   --project .
 
 dbt parse --no-partial-parse
 
-python -m cdo_governance.semantic.composition \
+python -m cdo_governance.semantic.position_composer \
   --project . \
   --contract ../cdo-governance/contracts \
   --manifest target/manifest.json \
@@ -82,7 +82,7 @@ python -m cdo_governance.semantic.composition \
   --require-semantic-model team_c_fi_positions \
   --output /tmp/current_cdo_catalog.yml
 
-python -m cdo_governance.semantic.dbt_generator \
+python -m cdo_governance.semantic.position_dbt_generator \
   --catalog /tmp/current_cdo_catalog.yml \
   --out models/semantic_models/team_cdo/generated
 ```

@@ -1,4 +1,4 @@
-"""CLI for dbt-meta-context-validator."""
+"""Command-line entry point for CDO contract and metric-context validation."""
 
 import json
 import sys
@@ -8,7 +8,7 @@ import click
 import yaml
 
 from .validation.metric_context import validate_metric
-from .validation.contracts import validate_cdo_contract
+from .validation.contract_validator import validate_cdo_contract
 
 
 def _find_yaml_files(path: Path) -> list[Path]:

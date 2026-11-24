@@ -4,8 +4,8 @@ import json
 import pytest
 import yaml
 
-from cdo_governance.semantic.inheritance import compile_semantics
-from cdo_governance.semantic.composition import compose_cdo
+from cdo_governance.semantic.semantic_compiler import compile_semantics
+from cdo_governance.semantic.position_composer import compose_cdo
 from test_semantic_compiler import project
 
 
