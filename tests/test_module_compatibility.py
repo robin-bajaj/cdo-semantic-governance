@@ -31,3 +31,23 @@ def test_canonical_module_cli_help(module):
     )
     assert result.returncode == 0, result.stderr
     assert "usage:" in result.stdout.lower()
+
+
+def test_first_party_python_does_not_reference_removed_module_paths():
+    """Prevent new imports/CLI calls from resurrecting deleted wrappers."""
+    from pathlib import Path
+    source_root = Path(__file__).resolve().parents[1]
+    obsolete = (
+        "cdo_governance.semantic.registry",
+        "cdo_governance.semantic.inheritance",
+        "cdo_governance.semantic.composition",
+        "cdo_governance.semantic.dbt_generator",
+        "cdo_governance.validation.contracts",
+    )
+    for directory in ("src", "tests"):
+        for path in (source_root / directory).rglob("*.py"):
+            if path.resolve() == Path(__file__).resolve():
+                continue
+            body = path.read_text(encoding="utf-8")
+            for dotted in obsolete:
+                assert dotted not in body, f"{path}: still uses {dotted}"
