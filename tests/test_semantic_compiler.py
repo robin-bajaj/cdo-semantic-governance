@@ -215,7 +215,7 @@ def test_structured_cdo_uses_rejects_parent_override(tmp_path):
 def test_structured_cdo_uses_does_not_affect_independent_models(tmp_path):
     root, registry = project(tmp_path)
     other = root / "models" / "independent.yml"
-    before = "version: 2\\nmodels:\\n  - name: unrelated_model\\n"
+    before = "version: 2\nmodels:\n  - name: unrelated_model\n"
     other.write_text(before)
     compile_semantics(root, registry)
     assert other.read_text() == before
