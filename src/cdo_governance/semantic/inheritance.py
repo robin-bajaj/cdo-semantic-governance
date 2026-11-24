@@ -77,10 +77,64 @@ def _load_definitions(path):
     return definitions
 
 
+
+def _normalize_cdo_declaration(model, path):
+    """Translate structured meta.cdo.uses into the existing strict compiler DSL."""
+    metadata = ((model.get("config") or {}).get("meta") or {})
+    declaration = metadata.get("cdo")
+    if declaration is None:
+        return metadata.get("semantic_inheritance")
+    if "semantic_inheritance" in metadata:
+        raise ValueError(f"{path}: use only one inheritance syntax")
+    if not isinstance(declaration, dict) or set(declaration) != {"uses", "version", "include"}:
+        raise ValueError(f"{path}: meta.cdo must define uses, version, and include")
+    included = declaration["include"]
+    if not isinstance(included, dict) or set(included) != {"attributes", "metrics"}:
+        raise ValueError(f"{path}: meta.cdo.include must define attributes and metrics")
+    attrs, metrics = included["attributes"], included["metrics"]
+    if not isinstance(attrs, list) or not attrs or not isinstance(metrics, list):
+        raise ValueError(f"{path}: meta.cdo include attributes/metrics must be lists")
+    names, context = [], {}
+    for attribute in attrs:
+        if not isinstance(attribute, dict) or set(attribute) - {"name", "entity", "dimension", "granularity"}:
+            raise ValueError(f"{path}: invalid meta.cdo attribute")
+        name = attribute.get("name")
+        if not isinstance(name, str) or not IDENTIFIER.fullmatch(name):
+            raise ValueError(f"{path}: invalid meta.cdo attribute name")
+        names.append(name)
+        extra = {k: deepcopy(v) for k, v in attribute.items() if k != "name"}
+        if extra:
+            context[name] = extra
+    if len(set(names)) != len(names):
+        raise ValueError(f"{path}: duplicate include attribute")
+    aliases, labels = {}, {}
+    for metric in metrics:
+        if not isinstance(metric, dict) or set(metric) - {"name", "alias", "label"}:
+            raise ValueError(f"{path}: invalid meta.cdo metric")
+        name, alias = metric.get("name"), metric.get("alias")
+        if not isinstance(name, str) or not isinstance(alias, str):
+            raise ValueError(f"{path}: each inherited metric requires name and alias")
+        if name in aliases:
+            raise ValueError(f"{path}: duplicate inherited metric {name}")
+        aliases[name] = alias
+        if "label" in metric:
+            if not isinstance(metric["label"], str):
+                raise ValueError(f"{path}: inherited metric label must be text")
+            labels[name] = metric["label"]
+    return {
+        "extends": declaration["uses"],
+        "version": declaration["version"],
+        "include": names,
+        "context": {"columns": context, "agg_time_dimension": model.get("agg_time_dimension")},
+        "metric_aliases": aliases,
+        "metric_labels": labels,
+    }
+
+
 def _compile_model(model, definitions, path):
     config = model.get("config") or {}
     metadata = config.get("meta") or {}
-    inheritance = metadata.get("semantic_inheritance")
+    inheritance = _normalize_cdo_declaration(model, path)
     if inheritance is None:
         return False
     if not isinstance(inheritance, dict):

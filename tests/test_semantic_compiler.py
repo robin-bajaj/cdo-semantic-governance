@@ -162,3 +162,60 @@ def test_governed_metric_requires_included_input(tmp_path):
     path.write_text(yaml.safe_dump(obj))
     with pytest.raises(ValueError, match="requires included attribute"):
         compile_semantics(root, registry)
+
+
+def test_structured_cdo_uses_compiles_same_contract(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    data = yaml.safe_load(path.read_text())
+    model = data["models"][0]
+    model["config"]["meta"] = {
+        "cdo": {
+            "uses": "cdo.position",
+            "version": 1,
+            "include": {
+                "attributes": [
+                    {"name": "position_id", "entity": {"name": "team_a_position", "type": "primary"}},
+                    {"name": "report_date", "dimension": {"type": "time"}, "granularity": "day"},
+                    {"name": "profit_loss"},
+                    {"name": "instrument_code", "entity": {"name": "instrument", "type": "foreign"}},
+                ],
+                "metrics": [{"name": "cdo.profit_loss", "alias": "equity_profit_loss", "label": "Equity Profit and Loss"}],
+            },
+        }
+    }
+    model["agg_time_dimension"] = "report_date"
+    path.write_text(yaml.safe_dump(data))
+    compile_semantics(root, registry)
+    result = yaml.safe_load(path.read_text())["models"][0]
+    cols = {c["name"]: c for c in result["columns"]}
+    assert cols["position_id"]["data_type"] == "text"
+    assert cols["position_id"]["entity"]["name"] == "team_a_position"
+    assert cols["report_date"]["dimension"]["type"] == "time"
+    assert cols["instrument_code"]["entity"]["type"] == "foreign"
+    metric = next(x for x in result["metrics"] if x["name"] == "equity_profit_loss")
+    assert (metric["agg"], metric["expr"]) == ("sum", "profit_loss")
+    assert result["config"]["meta"]["semantic_contract"]["implements"] == "cdo.position"
+
+
+def test_structured_cdo_uses_rejects_parent_override(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    data = yaml.safe_load(path.read_text())
+    model = data["models"][0]
+    model["config"]["meta"] = {"cdo": {
+        "uses": "cdo.position", "version": 1,
+        "include": {"attributes": [{"name": "profit_loss", "data_type": "text"}], "metrics": []}
+    }}
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError, match="invalid meta.cdo attribute"):
+        compile_semantics(root, registry)
+
+
+def test_structured_cdo_uses_does_not_affect_independent_models(tmp_path):
+    root, registry = project(tmp_path)
+    other = root / "models" / "independent.yml"
+    before = "version: 2\nmodels:\n  - name: unrelated_model\n"
+    other.write_text(before)
+    compile_semantics(root, registry)
+    assert other.read_text() == before
