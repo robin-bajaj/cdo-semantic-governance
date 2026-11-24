@@ -220,3 +220,54 @@ def test_structured_cdo_uses_does_not_affect_independent_models(tmp_path):
     other.write_text(before)
     compile_semantics(root, registry)
     assert other.read_text() == before
+
+
+def test_flat_meta_uses_inherits_same_cdo_contract(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    document = yaml.safe_load(path.read_text())
+    model = document["models"][0]
+    model["config"]["meta"] = {
+        "uses": "cdo.position",
+        "version": 1,
+        "include": {
+            "attributes": [
+                {"name": "position_id", "entity": {"name": "team_a_position", "type": "primary"}},
+                {"name": "report_date", "dimension": {"type": "time"}, "granularity": "day"},
+                {"name": "profit_loss"},
+                {"name": "instrument_code", "entity": {"name": "instrument", "type": "foreign"}},
+            ],
+            "metrics": [
+                {"name": "total_profit_loss", "alias": "equity_profit_loss", "label": "Equity Profit and Loss"},
+            ],
+        },
+    }
+    model["agg_time_dimension"] = "report_date"
+    path.write_text(yaml.safe_dump(document))
+    compile_semantics(root, registry)
+    compiled = yaml.safe_load(path.read_text())["models"][0]
+    assert compiled["config"]["meta"]["semantic_contract"]["implements"] == "cdo.position"
+    assert compiled["config"]["meta"]["semantic_contract"]["included_metrics"] == ["total_profit_loss"]
+    assert next(m for m in compiled["metrics"] if m["name"] == "equity_profit_loss")["expr"] == "profit_loss"
+    assert next(c for c in compiled["columns"] if c["name"] == "position_id")["entity"]["type"] == "primary"
+
+
+def test_flat_meta_uses_rejects_ambiguous_inheritance(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    document = yaml.safe_load(path.read_text())
+    meta = document["models"][0]["config"]["meta"]
+    meta.update({"uses": "cdo.position", "version": 1, "include": {"attributes": [], "metrics": []}})
+    path.write_text(yaml.safe_dump(document))
+    with pytest.raises(ValueError, match="use only one inheritance syntax"):
+        compile_semantics(root, registry)
+
+
+def test_flat_meta_uses_requires_complete_declaration(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    document = yaml.safe_load(path.read_text())
+    document["models"][0]["config"]["meta"] = {"uses": "cdo.position", "version": 1}
+    path.write_text(yaml.safe_dump(document))
+    with pytest.raises(ValueError, match="must define uses, version, and include"):
+        compile_semantics(root, registry)
