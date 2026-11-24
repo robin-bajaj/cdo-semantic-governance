@@ -1,91 +1,82 @@
 # CDO Semantic Governance
 
-The CDO owns reusable Position business attribute names, types and descriptions, plus governed metric formulas. Teams own dbt entity/dimension context and explicitly select the business attributes they use. The governance package handles inheritance, composition, native dbt SQL/YAML generation and validation. This package provides a custom pre-dbt-parse extension; `semantic_inheritance.extends` is **not native dbt**.
+This repository owns **logical business contracts**, a custom versioned inheritance compiler, CDO validation and the Position composition/generation tools. `cdo.all` is a central **definition registry**, not a physical dbt table or a queryable semantic model. Team A/C own their dbt SQL, semantic entities/dimensions, extra columns and local metrics in the separate [federated dbt repository](https://github.com/robin-bajaj/federated-semantic-poc).
 
-## Repository layout
+## Repository structure
 
 ```text
 cdo-semantic-governance/
 ├── contracts/
-│   └── position_v1.yml
-├── src/
-│   └── cdo_governance/
-│       ├── __init__.py
-│       ├── cli.py
-│       ├── semantic/
-│       │   ├── __init__.py
-│       │   ├── inheritance.py
-│       │   ├── composition.py
-│       │   └── dbt_generator.py
-│       └── validation/
-│           ├── __init__.py
-│           ├── contracts.py
-│           └── metric_context.py
+│   ├── cdo_all_v1.yml           # cdo.all v1: central business definitions + P&L formula
+│   ├── cdo_position_v1.yml      # cdo.position v1: selects from cdo.all
+│   └── cdo_counterparty_v1.yml  # cdo.counterparty v1: selects from cdo.all
+├── src/cdo_governance/
+│   ├── semantic/
+│   │   ├── registry.py          # Resolve/validate versioned concept dependencies
+│   │   ├── inheritance.py       # Expand team-authored metadata into native dbt YAML
+│   │   ├── composition.py       # Validate and compose Team A/C Position metadata
+│   │   └── dbt_generator.py     # Generate native CDO Position dbt SQL/YAML
+│   └── validation/
+│       ├── contracts.py         # Check compiled model contract compliance
+│       └── metric_context.py    # Optional additional metric-governance checks
 ├── tests/
-├── .github/workflows/governance-ci.yml
+├── .github/workflows/
 ├── pyproject.toml
 └── README.md
 ```
 
-## Ownership and data flow
+## Naming conventions
 
-- **`contracts/position_v1.yml`**: central business dictionary containing only `name`, `data_type`, and `description` for each attribute. Its governed `cdo.profit_loss` metric stays in this same file.
-- **Team-owned `semantic_inheritance.include`**: explicit whitelist of the CDO attributes to inherit. Newly registered attributes never appear in a team model unless the team opts in.
-- **Team-owned `semantic_inheritance.context`**: semantic entity/dimension/granularity and aggregation-time mappings, not part of the CDO attribute dictionary.
-- **`semantic/inheritance.py`**: merges the selected governed attributes with local contextual roles and appends team-owned extensions/metrics. Blocks type/description overrides and unknown or duplicate selections.
-- **`validation/contracts.py`**: checks the declared selected CDO attributes and their types in the compiled manifest. Native dbt model contracts may still be required.
-- **`semantic/composition.py`**: records each participating team's selected attributes and its contextual mappings in a custom composition catalog.
-- **`semantic/dbt_generator.py`**: creates a native composite SQL/YAML model. The current enterprise Position view requires `position_id`, `report_date`, and `profit_loss` in each team; optional included attributes are typed-NULL-padded for teams that omit them.
-- **`validation/metric_context.py`**: optional metric governance checks.
+| Name | Meaning |
+| --- | --- |
+| `cdo.all` | Enterprise-wide logical definition registry |
+| `cdo.position` | Logical Position contract that selects definitions from `cdo.all` |
+| `cdo.counterparty` | Logical Counterparty contract that selects definitions from `cdo.all` |
+| `cdo_all_v1.yml` | Contract **file** for `cdo.all` version 1 |
+| `cdo_position_v1.yml` | Contract **file** for `cdo.position` version 1 |
+| `cdo_counterparty_v1.yml` | Contract **file** for `cdo.counterparty` version 1 |
+| `total_profit_loss` | Central metric identifier, computed as `SUM(profit_loss)` |
+| `profit_loss` | Governed underlying numeric attribute |
 
-Generated files live in the federated dbt project's `generated/production` branch, including the inspectable `artifacts/cdo/position_v1_composition.yml` outside dbt's `models/`.
+Contract filenames follow `<concept_namespace>_<concept_name>_v<version>.yml`. The dotted names in `name:` and `uses:` remain the stable logical identifiers; filenames are merely their locations.
 
-## Team authoring example
+## How inheritance works
 
-```yaml
-semantic_inheritance:
-  extends: cdo.position
-  version: 1
-  include: [position_id, report_date, profit_loss, instrument_code]
-  context:
-    agg_time_dimension: report_date
-    columns:
-      position_id:
-        entity: {name: team_a_position, type: primary}
-      report_date:
-        dimension: {type: time}
-        granularity: day
-      instrument_code:
-        entity: {name: instrument, type: foreign}
-  metric_aliases:
-    cdo.profit_loss: equity_profit_loss
+```text
+cdo.all v1
+  ├── cdo.position v1
+  │     ├── Team A Equity Position model
+  │     └── Team C Fixed Income Position model
+  └── cdo.counterparty v1
+        (logical concept only; no physical Counterparty dbt model yet)
 ```
 
-The governed P&L metric remains in `position_v1.yml`. Selecting that metric requires the team to include `profit_loss`. The exact attribute whitelist can differ across teams; the composite model's three core fields remain required.
+`cdo.all` defines common attributes and the P&L metric **once**. `cdo.position` explicitly selects `position_id`, `report_date`, `profit_loss`, `instrument_code` and `total_profit_loss`. `cdo.counterparty` independently selects `counterparty_id`, `counterparty_name`, and `counterparty_type`.
 
-## Installation and tests
+The Team A/C models opt in with `config.meta.uses: cdo.position`, `version: 1` and `include.attributes`/`include.metrics`. The custom Python compiler resolves the pinned `cdo.position → cdo.all` chain **before** dbt parses the model, then applies the team's entity/dimension mappings and metric aliases. **Native dbt does not implement this custom inheritance mechanism.** An unrelated dbt model without these metadata declarations is left alone.
+
+The recursive registry rejects missing parents, circular dependencies, duplicate contract versions, unknown selected fields, missing metric input attributes, invalid formulas and conflicting definitions. Team model contracts are physically enforced by `dbt build` in configured CI runs. Published contract versions should be treated as immutable and protected through approval and branch policies.
+
+## Local validation
 
 ```bash
 python -m pip install -e . pytest
+python -m cdo_governance.semantic.registry --registry contracts
 python -m pytest tests -q
 ```
 
-The `governance-ci.yml` workflow runs these tests on PRs and pushes to `main`. It verifies governance code independently of the federated dbt repository, which pins an approved governance commit.
-
-## CLI from a disposable federated dbt project checkout
-
-Assuming this repository is checked out at `../contract-validator`:
+When compiling from the **federated** dbt project checkout, supply the **whole contracts directory**, not one leaf contract file:
 
 ```bash
 python -m cdo_governance.semantic.inheritance \
-  --registry ../contract-validator/contracts/position_v1.yml \
+  --registry ../cdo-governance/contracts \
   --project .
 
 dbt parse --no-partial-parse
 
 python -m cdo_governance.semantic.composition \
   --project . \
-  --contract ../contract-validator/contracts/position_v1.yml \
+  --contract ../cdo-governance/contracts \
   --manifest target/manifest.json \
   --require-semantic-model team_a_equity_positions \
   --require-semantic-model team_c_fi_positions \
@@ -96,38 +87,10 @@ python -m cdo_governance.semantic.dbt_generator \
   --out models/semantic_models/team_cdo/generated
 ```
 
-`compose_cdo` refuses to emit the custom catalog inside `models/` because it is not native dbt syntax.
+The composition catalog is custom metadata, kept **outside** dbt's `models/` directory. The generator emits `cdo_enterprise_positions.sql` and `cdo_enterprise_positions.yml` for the Position union of Team A/C. The generated CDO metric derives its formula from the resolved contract rather than redefining it.
 
-## Deployment boundary
+## Release boundaries
 
-Team A/C PRs run validation-only CI in the federated repository. A human-approved merge from `main` into `generated/production` triggers the consolidated promotion job: compile, compose, generate native CDO SQL/YAML, parse, build on Neon, and commit compiled Team A/C plus CDO outputs and custom catalog to the deployment branch. The hosted dbt Cloud deployment remains a separate action. Changes to this governance package must be promoted by explicitly updating the pinned revision used in federated CI and promotion.
+The governance CI validates the registry and regression tests. The federated CI checks Team A/C inheritance, native dbt parsing and database contracts in an isolated schema. The separate protected promotion workflow compiles the approved main branch, composes the Position catalog, generates and builds the native CDO SQL/YAML, then commits outputs to `generated/production`. dbt Cloud deployment remains a separate manual step.
 
-
-## Multi-level CDO business contracts
-
-The `contracts/` directory is a versioned **logical business registry**, not a set of dbt models or physical tables.
-
-- `all_v1.yml` (`cdo.all`) defines the centralized Position fields, Counterparty fields, and the governed `total_profit_loss = SUM(profit_loss)` metric.
-- `position_v1.yml` (`cdo.position`) selects its four Position fields and the metric from `cdo.all` v1; it no longer duplicates definitions.
-- `counterparty_v1.yml` (`cdo.counterparty`) selects counterparty fields from the same dictionary. No physical Counterparty staging SQL, semantic join, or metric is implied.
-- Team A/C continue to author `config.meta.uses: cdo.position` without referring to `cdo.all` directly.
-
-The Python compiler fully resolves recursive `uses` + `uses_version` dependencies before expanding team models. Every concept selects `include.attributes` and `include.metrics` explicitly. Duplicate versions, dangling parents, cycles, unsupported overrides, unknown selected fields, missing metric inputs, and invalid flat metrics fail closed. The compiled team metadata includes the version-pinned parent lineage. Other models without an inheritance declaration remain independent.
-
-To validate the entire registry:
-
-```bash
-python -m cdo_governance.semantic.registry --registry contracts
-python -m pytest tests -q
-```
-
-For the normal team compilation and Position composition workflows, pass the **directory** rather than the old single-file Position contract:
-
-```bash
-python -m cdo_governance.semantic.inheritance --registry /path/to/contracts --project .
-python -m cdo_governance.semantic.composition --project . --contract /path/to/contracts --manifest target/manifest.json --output /tmp/current_cdo_catalog.yml
-```
-
-**Versioning policy:** Treat published contract versions as immutable in review; a breaking change requires a new version and explicit adoption. Enforce this policy with protected branches and mandatory checks in the owning repository. This implementation validates structural references but does not independently prevent an authorized maintainer from editing an old version.
-
-**Scope boundary:** The Counterparty contract demonstrates reusable business definitions. Exposing a queryable Counterparty semantic model or joining Position to Counterparty requires separately owned staging SQL, an entity relationship, corresponding database tests, and an approved dbt deployment; none are silently generated by logical inheritance.
+The `cdo.counterparty` contract is intentionally **logical only**. It does not create a physical table, automatically create a Position–Counterparty join or alter the existing enterprise Position model. Exposing Counterparty in a BI tool requires an independent team implementation and explicit semantic relationships.
