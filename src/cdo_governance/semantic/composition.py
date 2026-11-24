@@ -142,6 +142,7 @@ def compose_cdo(project_path, contract_path, manifest_path, output_path,
         "description": "Composed semantic catalog; execution/routing must be implemented separately.",
         "common_attributes": [field for field in required if any(field in entry["included_attributes"] for entry in implementations)],
         "attribute_definitions": deepcopy(contract["attributes"]),
+        "metric_definitions": deepcopy(contract.get("metrics") or []),
         "implementations": implementations,
     }
     # Never overwrite project-authored semantic definitions.

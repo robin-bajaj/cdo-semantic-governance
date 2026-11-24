@@ -8,6 +8,10 @@ def test_generate_native_cdo_from_two_team_catalog(tmp_path):
         "catalog_format": "cdo-federated-semantic-catalog/v1",
         "contract": {"name": "cdo.position", "version": 1},
         "common_attributes": ["position_id", "report_date", "profit_loss", "instrument_code"],
+        "metric_definitions": [
+            {"name": "total_profit_loss", "description": "Total position P&L",
+             "type": "simple", "agg": "sum", "expr": "profit_loss", "fill_nulls_with": 0},
+        ],
         "attribute_definitions": [
             {"name": "position_id", "data_type": "text", "description": "Position identifier"},
             {"name": "report_date", "data_type": "date", "description": "Reporting date"},
@@ -66,8 +70,10 @@ def test_generate_native_cdo_from_two_team_catalog(tmp_path):
     assert "null::numeric as mtm" in sql
     assert native["semantic_model"]["enabled"] is True
     assert native["primary_entity"] == "cdo_position"
-    metrics = {metric["name"] for metric in native["metrics"]}
-    assert {"cdo_total_profit_loss", "cdo_equity_total_mtm", "cdo_fi_total_settled_cash"} <= metrics
+    metrics = {metric["name"]: metric for metric in native["metrics"]}
+    assert {"cdo_total_profit_loss", "cdo_equity_total_mtm", "cdo_fi_total_settled_cash"} <= set(metrics)
+    assert metrics["cdo_total_profit_loss"]["fill_nulls_with"] == 0
+    assert metrics["cdo_total_profit_loss"]["expr"] == "profit_loss"
 
 
 def test_sql_null_pads_optional_business_attribute(tmp_path):
@@ -75,6 +81,10 @@ def test_sql_null_pads_optional_business_attribute(tmp_path):
         "catalog_format": "cdo-federated-semantic-catalog/v1",
         "contract": {"name": "cdo.position", "version": 1},
         "common_attributes": ["position_id", "report_date", "profit_loss", "instrument_code"],
+        "metric_definitions": [
+            {"name": "total_profit_loss", "description": "Total position P&L",
+             "type": "simple", "agg": "sum", "expr": "profit_loss", "fill_nulls_with": 0},
+        ],
         "attribute_definitions": [
             {"name": "position_id", "data_type": "text", "description": "ID"},
             {"name": "report_date", "data_type": "date", "description": "Date"},
@@ -102,3 +112,38 @@ def test_sql_null_pads_optional_business_attribute(tmp_path):
     assert "null::integer as instrument_code" in sql
     native = yaml.safe_load((out / "cdo_enterprise_positions.yml").read_text())
     assert next(c for c in native["models"][0]["columns"] if c["name"] == "instrument_code")["data_type"] == "integer"
+
+
+def test_fails_closed_if_governed_profit_formula_missing(tmp_path):
+    import pytest
+    # This deliberately minimal catalog verifies the generator validates its
+    # authoritative metric dependency before writing any output.
+    catalog = {
+        "catalog_format": "cdo-federated-semantic-catalog/v1",
+        "contract": {"name": "cdo.position", "version": 1},
+        "common_attributes": ["position_id", "report_date", "profit_loss"],
+        "attribute_definitions": [
+            {"name": "position_id", "data_type": "text"},
+            {"name": "report_date", "data_type": "date"},
+            {"name": "profit_loss", "data_type": "numeric"},
+        ],
+        "implementations": [
+            {"semantic_model": "team_a_equity_positions", "source_model": "stg_team_a_positions",
+             "included_attributes": ["position_id", "report_date", "profit_loss"],
+             "columns": [{"name": "position_id", "data_type": "text"},
+                         {"name": "report_date", "data_type": "date"},
+                         {"name": "profit_loss", "data_type": "numeric"}],
+             "metrics": []},
+            {"semantic_model": "team_c_fi_positions", "source_model": "stg_team_c_positions",
+             "included_attributes": ["position_id", "report_date", "profit_loss"],
+             "columns": [{"name": "position_id", "data_type": "text"},
+                         {"name": "report_date", "data_type": "date"},
+                         {"name": "profit_loss", "data_type": "numeric"}],
+             "metrics": []},
+        ],
+    }
+    source = tmp_path / "catalog.yml"
+    source.write_text(yaml.safe_dump(catalog))
+    with pytest.raises(ValueError, match="governed Position P&L metric"):
+        generate(source, tmp_path / "generated")
+    assert not (tmp_path / "generated" / "cdo_enterprise_positions.yml").exists()
