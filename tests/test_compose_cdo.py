@@ -115,3 +115,23 @@ def test_optional_governed_attribute_may_be_omitted_by_team(tmp_path):
     implementations = {i["semantic_model"]: i for i in data["implementations"]}
     assert "instrument_code" in data["common_attributes"]
     assert "instrument_code" not in implementations["team_c_positions"]["included_attributes"]
+
+
+def test_rejects_modified_inherited_fill_nulls(tmp_path):
+    root, contract, manifest = setup_compiled(tmp_path)
+    path = root / "models" / "team_a.yml"
+    content = yaml.safe_load(path.read_text())
+    content["models"][0]["metrics"][0]["fill_nulls_with"] = 9
+    path.write_text(yaml.safe_dump(content))
+    with pytest.raises(ValueError, match="overrides fill_nulls_with"):
+        compose_cdo(root, contract, manifest, tmp_path / "catalog.yml")
+
+
+def test_flat_cdo_contract_defaults_to_native_enforcement(tmp_path):
+    root, contract, manifest = setup_compiled(tmp_path)
+    data = json.loads(manifest.read_text())
+    first = data["nodes"]["model.poc.stg_team_a_positions"]
+    first["config"]["contract"]["enforced"] = False
+    manifest.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="Native dbt contract is not enforced"):
+        compose_cdo(root, contract, manifest, tmp_path / "catalog.yml")
