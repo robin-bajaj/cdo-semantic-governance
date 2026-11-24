@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 
-from cdo_governance.validation.contracts import validate_cdo_contract
+from cdo_governance.validation.contract_validator import validate_cdo_contract
 
 
 CONTRACT = {

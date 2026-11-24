@@ -94,3 +94,10 @@ The composition catalog is custom metadata, kept **outside** dbt's `models/` dir
 The governance CI validates the registry and regression tests. The federated CI checks Team A/C inheritance, native dbt parsing and database contracts in an isolated schema. The separate protected promotion workflow compiles the approved main branch, composes the Position catalog, generates and builds the native CDO SQL/YAML, then commits outputs to `generated/production`. dbt Cloud deployment remains a separate manual step.
 
 The `cdo.counterparty` contract is intentionally **logical only**. It does not create a physical table, automatically create a Position–Counterparty join or alter the existing enterprise Position model. Exposing Counterparty in a BI tool requires an independent team implementation and explicit semantic relationships.
+
+
+## Canonical Python modules
+
+Only the documented implementation modules are supported: `cdo_governance.semantic.contract_registry`, `cdo_governance.semantic.semantic_compiler`, `cdo_governance.semantic.position_composer`, `cdo_governance.semantic.position_dbt_generator`, and `cdo_governance.validation.contract_validator`. Legacy module shims (`semantic.registry`, `semantic.inheritance`, `semantic.composition`, `semantic.dbt_generator`, and `validation.contracts`) were removed after migrating the known federated CI and promotion workflows.
+
+**Breaking change:** External consumers still importing or invoking those old paths must migrate to the canonical names. The separately maintained metric-context validator and the existing `dbt-mc` CLI alias are not part of this removal.
