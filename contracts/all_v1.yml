@@ -1,0 +1,35 @@
+# Enterprise business dictionary. Logical definitions only; not a dbt model.
+# Changes to released definitions require a new version and explicit adoption.
+name: cdo.all
+version: 1
+
+attributes:
+  - name: position_id
+    data_type: text
+    description: Position identifier
+  - name: report_date
+    data_type: date
+    description: Business reporting date
+  - name: profit_loss
+    data_type: numeric
+    description: Standardized profit and loss
+  - name: instrument_code
+    data_type: integer
+    description: Financial instrument identifier
+  - name: counterparty_id
+    data_type: text
+    description: Unique identifier of a counterparty
+  - name: counterparty_name
+    data_type: text
+    description: Legal or business name of a counterparty
+  - name: counterparty_type
+    data_type: text
+    description: Business classification of the counterparty
+
+metrics:
+  - name: total_profit_loss
+    description: Total position profit and loss
+    type: simple
+    agg: sum
+    expr: profit_loss
+    fill_nulls_with: 0
