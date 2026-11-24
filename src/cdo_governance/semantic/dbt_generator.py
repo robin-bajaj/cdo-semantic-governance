@@ -33,8 +33,18 @@ def generate(catalog_path, output_directory):
         _identifier(name)
     if len(set(common)) != len(common):
         raise ValueError("Duplicate CDO attributes")
-    if set(common) != {"position_id", "report_date", "profit_loss", "instrument_code"}:
-        raise ValueError("Unsupported CDO common attributes")
+    definitions = {col["name"]: col for col in catalog.get("attribute_definitions") or []}
+    if not definitions or set(common) - set(definitions):
+        raise ValueError("Composition is missing governed attribute definitions")
+    # This POC's enterprise Position view has an explicit minimum grain and P&L.
+    # Other registry attributes are optional and NULL-padded when a team omits one.
+    required_core = {"position_id", "report_date", "profit_loss"}
+    if not required_core <= set(common):
+        raise ValueError("Composite CDO Position requires position_id, report_date, profit_loss")
+    accepted_types = {"numeric", "integer", "text", "date", "boolean", "bigint"}
+    for column in definitions.values():
+        if str(column.get("data_type", "")).lower() not in accepted_types:
+            raise ValueError(f"Unsupported governed attribute type: {column}")
 
     extensions = []
     dtype = {}
@@ -46,8 +56,14 @@ def generate(catalog_path, output_directory):
         lookup = {c["name"]: c for c in columns}
         if len(lookup) != len(columns):
             raise ValueError(f"{src}: duplicate columns")
-        if not set(common) <= set(lookup):
-            raise ValueError(f"{src}: missing common attributes")
+        selected = implementation.get("included_attributes") or []
+        if set(selected) - set(common) or not required_core <= set(selected):
+            raise ValueError(f"{src}: invalid inclusion or missing composite core attributes")
+        if not set(selected) <= set(lookup):
+            raise ValueError(f"{src}: selected attributes not found in source")
+        for name in selected:
+            if lookup[name].get("data_type") != definitions[name]["data_type"]:
+                raise ValueError(f"{src}: governed type mismatch for {name}")
         for col in columns:
             name = _identifier(col["name"])
             data_type = str(col.get("data_type", "")).strip().lower()
@@ -61,20 +77,22 @@ def generate(catalog_path, output_directory):
                     extensions.append(name)
         source_maps.append((team, src, lookup))
     # Explicitly allow SQL casts only from this restricted dbt/Postgres type set.
-    accepted_types = {"numeric", "integer", "text", "date", "boolean", "bigint"}
     if set(dtype.values()) - accepted_types:
         raise ValueError(f"Unsupported extension types: {set(dtype.values()) - accepted_types}")
     extensions.sort()
 
     branches = []
     for team, src, cols in source_maps:
-        selections = [
-            f"    '{team}'::text as source_team",
-            "    position_id::text as position_id",
-            "    report_date::date as report_date",
-            "    profit_loss::numeric as profit_loss",
-            "    instrument_code::integer as instrument_code",
-        ]
+        selected = {name for name in common if name in cols and name in next(
+            impl["included_attributes"] for impl in implementations if impl["source_model"] == src
+        )}
+        selections = [f"    '{team}'::text as source_team"]
+        for name in common:
+            kind = definitions[name]["data_type"].lower()
+            selections.append(
+                f"    {name}::{kind} as {name}" if name in selected
+                else f"    null::{kind} as {name}"
+            )
         for extra in extensions:
             cast = dtype[extra]
             selections.append(f"    {extra}::{cast} as {extra}" if extra in cols else f"    null::{cast} as {extra}")
@@ -84,14 +102,21 @@ def generate(catalog_path, output_directory):
            "{{ config(materialized='view') }}\n\n" +
            "\n\nunion all\n\n".join(branches) + "\n")
 
-    columns = [
-        {"name": "source_team", "data_type": "text", "dimension": {"type": "categorical"}},
-        {"name": "position_id", "data_type": "text", "dimension": {"type": "categorical"}},
-        {"name": "report_date", "data_type": "date", "granularity": "day", "dimension": {"type": "time"}},
-        {"name": "profit_loss", "data_type": "numeric"},
-        {"name": "instrument_code", "data_type": "integer", "dimension": {"type": "categorical"},
-         "entity": {"type": "foreign", "name": "instrument"}},
-    ]
+    # CDO's composite semantic context is defined here, not in the reusable
+    # business dictionary. Team-level contextual roles stay independent.
+    columns = [{"name": "source_team", "data_type": "text",
+                "dimension": {"type": "categorical"}}]
+    for name in common:
+        column = {"name": name, "data_type": definitions[name]["data_type"],
+                  "description": definitions[name].get("description", "")}
+        if name == "position_id":
+            column["dimension"] = {"type": "categorical"}
+        elif name == "report_date":
+            column.update({"granularity": "day", "dimension": {"type": "time"}})
+        elif name == "instrument_code":
+            column.update({"dimension": {"type": "categorical"},
+                           "entity": {"type": "foreign", "name": "instrument"}})
+        columns.append(column)
     # A natural entity describes business grain without falsely claiming globally unique Position IDs.
     # Composite identity must be treated as (source_team, position_id, report_date).
     # 'primary_entity' is the semantic concept, not a physical key constraint.
