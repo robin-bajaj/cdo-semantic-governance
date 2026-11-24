@@ -1,6 +1,6 @@
 # CDO Semantic Governance
 
-The CDO owns the canonical Position interface, semantic inheritance rules, Team A/C composition, native dbt SQL/YAML generation, and contract/metric validation. This package provides a custom pre-dbt-parse extension; `semantic_inheritance.extends` is **not native dbt**.
+The CDO owns reusable Position business attribute names, types and descriptions, plus governed metric formulas. Teams own dbt entity/dimension context and explicitly select the business attributes they use. The governance package handles inheritance, composition, native dbt SQL/YAML generation and validation. This package provides a custom pre-dbt-parse extension; `semantic_inheritance.extends` is **not native dbt**.
 
 ## Repository layout
 
@@ -29,14 +29,39 @@ cdo-semantic-governance/
 
 ## Ownership and data flow
 
-- **`contracts/position_v1.yml`**: CDO-governed interface (position_id, report_date, profit_loss, instrument_code), types, entities and `SUM(profit_loss)` semantics.
-- **`semantic/inheritance.py`**: expands participating Team A/C authored YAML to native dbt properties in a disposable working copy.
-- **`validation/contracts.py`**: checks the compiled dbt manifest against the contract. Non-participating team models remain outside this contract.
-- **`semantic/composition.py`**: composes validated Team A and Team C definitions into a custom catalog, preserving local extensions and aliases.
-- **`semantic/dbt_generator.py`**: generates native `cdo_enterprise_positions.sql` and `.yml` from the catalog.
-- **`validation/metric_context.py`**: optional Meta:Context metric checks, also available through `cdo-validate` / `dbt-mc`.
+- **`contracts/position_v1.yml`**: central business dictionary containing only `name`, `data_type`, and `description` for each attribute. Its governed `cdo.profit_loss` metric stays in this same file.
+- **Team-owned `semantic_inheritance.include`**: explicit whitelist of the CDO attributes to inherit. Newly registered attributes never appear in a team model unless the team opts in.
+- **Team-owned `semantic_inheritance.context`**: semantic entity/dimension/granularity and aggregation-time mappings, not part of the CDO attribute dictionary.
+- **`semantic/inheritance.py`**: merges the selected governed attributes with local contextual roles and appends team-owned extensions/metrics. Blocks type/description overrides and unknown or duplicate selections.
+- **`validation/contracts.py`**: checks the declared selected CDO attributes and their types in the compiled manifest. Native dbt model contracts may still be required.
+- **`semantic/composition.py`**: records each participating team's selected attributes and its contextual mappings in a custom composition catalog.
+- **`semantic/dbt_generator.py`**: creates a native composite SQL/YAML model. The current enterprise Position view requires `position_id`, `report_date`, and `profit_loss` in each team; optional included attributes are typed-NULL-padded for teams that omit them.
+- **`validation/metric_context.py`**: optional metric governance checks.
 
-All generated files belong to the federated dbt project's `generated/production` branch, not to this source repository. The inspectable custom composition catalog is kept at `artifacts/cdo/position_v1_composition.yml` outside dbt's `models/` directory.
+Generated files live in the federated dbt project's `generated/production` branch, including the inspectable `artifacts/cdo/position_v1_composition.yml` outside dbt's `models/`.
+
+## Team authoring example
+
+```yaml
+semantic_inheritance:
+  extends: cdo.position
+  version: 1
+  include: [position_id, report_date, profit_loss, instrument_code]
+  context:
+    agg_time_dimension: report_date
+    columns:
+      position_id:
+        entity: {name: team_a_position, type: primary}
+      report_date:
+        dimension: {type: time}
+        granularity: day
+      instrument_code:
+        entity: {name: instrument, type: foreign}
+  metric_aliases:
+    cdo.profit_loss: equity_profit_loss
+```
+
+The governed P&L metric remains in `position_v1.yml`. Selecting that metric requires the team to include `profit_loss`. The exact attribute whitelist can differ across teams; the composite model's three core fields remain required.
 
 ## Installation and tests
 
