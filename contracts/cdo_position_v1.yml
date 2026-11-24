@@ -1,0 +1,15 @@
+# Logical Position business concept. All names, types and calculations
+# come from the version-pinned enterprise dictionary in CDO_ALL.
+name: cdo.position
+version: 1
+uses: cdo.all
+uses_version: 1
+
+include:
+  attributes:
+    - position_id
+    - report_date
+    - profit_loss
+    - instrument_code
+  metrics:
+    - total_profit_loss
