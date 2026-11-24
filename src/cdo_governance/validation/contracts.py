@@ -38,9 +38,9 @@ def validate_cdo_contract(manifest: dict, contract: dict) -> list[str]:
     # Reject the legacy duplicated mapping to prevent conflicting sources of truth.
     if "required_columns" in contract:
         raise ValueError("CDO contract must define columns only in semantic_columns")
-    semantic_columns = contract.get("semantic_columns")
+    semantic_columns = contract.get("attributes", contract.get("semantic_columns"))
     if not isinstance(semantic_columns, list) or not semantic_columns:
-        raise ValueError("CDO contract requires a non-empty semantic_columns list")
+        raise ValueError("CDO contract requires a non-empty attributes list")
     columns_required = {}
     for column in semantic_columns:
         if not isinstance(column, dict):
@@ -97,8 +97,20 @@ def validate_cdo_contract(manifest: dict, contract: dict) -> list[str]:
                 f"Expected {version}, got {implementation.get('version')}"
             )
 
+        # Compiled implementations record their explicit CDO attribute whitelist.
+        # Legacy manifests without a marker remain checked against all fields.
+        selected_names = implementation.get("included_attributes")
+        if selected_names is None:
+            selected_names = list(columns_required)
+        if (not isinstance(selected_names, list) or not selected_names
+                or len(selected_names) != len(set(selected_names))
+                or any(name not in columns_required for name in selected_names)):
+            errors.append(f"{model_name}: invalid included_attributes whitelist")
+            continue
+
         columns = model.get("columns") or {}
-        for column_name, expected_type in columns_required.items():
+        for column_name in selected_names:
+            expected_type = columns_required[column_name]
             column = columns.get(column_name)
             if column is None:
                 errors.append(
