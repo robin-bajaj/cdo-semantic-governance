@@ -6,12 +6,11 @@ from cdo_governance.semantic.inheritance import compile_semantics
 
 CDO = {
     "name": "cdo.position", "version": 1, "owner": "CDO",
-    "agg_time_dimension": "report_date",
-    "semantic_columns": [
-        {"name": "position_id", "data_type": "text", "entity": {"name": "position", "type": "primary"}},
-        {"name": "report_date", "data_type": "date", "granularity": "day", "dimension": {"type": "time"}},
-        {"name": "profit_loss", "data_type": "numeric"},
-        {"name": "instrument_code", "data_type": "integer", "entity": {"name": "instrument", "type": "foreign"}},
+    "attributes": [
+        {"name": "position_id", "data_type": "text", "description": "Position ID"},
+        {"name": "report_date", "data_type": "date", "description": "Reporting date"},
+        {"name": "profit_loss", "data_type": "numeric", "description": "P&L"},
+        {"name": "instrument_code", "data_type": "integer", "description": "Instrument"},
     ],
     "metrics": [{"name": "cdo.profit_loss", "version": 1, "label": "Profit and Loss",
                  "metric": {"type": "simple", "agg": "sum", "expr": "profit_loss", "fill_nulls_with": 0}}],
@@ -27,7 +26,15 @@ def project(tmp_path):
             "name": f"stg_{team}_positions", "config": {"meta": {
                 "semantic_inheritance": {
                     "extends": "cdo.position", "version": 1,
-                    "entity_aliases": {"position": f"{team}_position"},
+                    "include": ["position_id", "report_date", "profit_loss", "instrument_code"],
+                    "context": {
+                        "agg_time_dimension": "report_date",
+                        "columns": {
+                            "position_id": {"entity": {"name": f"{team}_position", "type": "primary"}},
+                            "report_date": {"granularity": "day", "dimension": {"type": "time"}},
+                            "instrument_code": {"entity": {"name": "instrument", "type": "foreign"}},
+                        },
+                    },
                     "metric_aliases": {"cdo.profit_loss": f"{team}_profit_loss"},
                     "metric_labels": {"cdo.profit_loss": f"{team} Profit and Loss"}
                 }
@@ -81,7 +88,7 @@ def test_unknown_version_fails(tmp_path):
 def test_missing_semantic_column_type_rejected(tmp_path):
     root, central = project(tmp_path)
     definition = deepcopy(CDO)
-    del definition["semantic_columns"][2]["data_type"]
+    del definition["attributes"][2]["data_type"]
     central.write_text(yaml.safe_dump(definition))
     with pytest.raises(ValueError, match="requires data_type"):
         compile_semantics(root, central)
@@ -90,9 +97,9 @@ def test_missing_semantic_column_type_rejected(tmp_path):
 def test_duplicate_semantic_column_rejected(tmp_path):
     root, central = project(tmp_path)
     definition = deepcopy(CDO)
-    definition["semantic_columns"].append(deepcopy(definition["semantic_columns"][0]))
+    definition["attributes"].append(deepcopy(definition["attributes"][0]))
     central.write_text(yaml.safe_dump(definition))
-    with pytest.raises(ValueError, match="duplicate inherited column names"):
+    with pytest.raises(ValueError, match="duplicate CDO attribute names"):
         compile_semantics(root, central)
 
 
@@ -101,5 +108,57 @@ def test_legacy_duplicate_column_mapping_rejected(tmp_path):
     definition = deepcopy(CDO)
     definition["required_columns"] = {"profit_loss": "numeric"}
     central.write_text(yaml.safe_dump(definition))
-    with pytest.raises(ValueError, match="use semantic_columns only"):
+    with pytest.raises(ValueError, match="use attributes only"):
         compile_semantics(root, central)
+
+
+def test_include_selects_only_whitelisted_attributes(tmp_path):
+    root, registry = project(tmp_path)
+    # Team C opts out of the optional CDO instrument attribute.
+    path = root / "models" / "team_c.yml"
+    obj = yaml.safe_load(path.read_text())
+    inheritance = obj["models"][0]["config"]["meta"]["semantic_inheritance"]
+    inheritance["include"].remove("instrument_code")
+    inheritance["context"]["columns"].pop("instrument_code")
+    path.write_text(yaml.safe_dump(obj))
+    compile_semantics(root, registry)
+    model = yaml.safe_load(path.read_text())["models"][0]
+    assert "instrument_code" not in {c["name"] for c in model["columns"]}
+    assert model["config"]["meta"]["semantic_contract"]["included_attributes"] == inheritance["include"]
+
+
+def test_missing_include_fails_closed(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    obj = yaml.safe_load(path.read_text())
+    obj["models"][0]["config"]["meta"]["semantic_inheritance"].pop("include")
+    path.write_text(yaml.safe_dump(obj))
+    with pytest.raises(ValueError, match="include must be a non-empty"):
+        compile_semantics(root, registry)
+
+
+def test_include_invalid_attribute_and_context_type_override(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    obj = yaml.safe_load(path.read_text())
+    inheritance = obj["models"][0]["config"]["meta"]["semantic_inheritance"]
+    inheritance["include"].append("not_in_cdo")
+    path.write_text(yaml.safe_dump(obj))
+    with pytest.raises(ValueError, match="unknown CDO attributes"):
+        compile_semantics(root, registry)
+    inheritance["include"].pop()
+    inheritance["context"]["columns"]["profit_loss"] = {"data_type": "text"}
+    path.write_text(yaml.safe_dump(obj))
+    with pytest.raises(ValueError, match="must not override"):
+        compile_semantics(root, registry)
+
+
+def test_governed_metric_requires_included_input(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_c.yml"
+    obj = yaml.safe_load(path.read_text())
+    inheritance = obj["models"][0]["config"]["meta"]["semantic_inheritance"]
+    inheritance["include"].remove("profit_loss")
+    path.write_text(yaml.safe_dump(obj))
+    with pytest.raises(ValueError, match="requires included attribute"):
+        compile_semantics(root, registry)

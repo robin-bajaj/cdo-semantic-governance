@@ -40,11 +40,11 @@ def _load_definitions(path):
         key = (spec.get("name"), str(spec.get("version")))
         if not key[0] or key in definitions:
             raise ValueError(f"{file}: missing or duplicated CDO name/version")
-        columns = spec.get("semantic_columns")
-        if "required_columns" in spec:
-            raise ValueError(f"{file}: use semantic_columns only, not required_columns")
+        columns = spec.get("attributes")
+        if "semantic_columns" in spec or "required_columns" in spec:
+            raise ValueError(f"{file}: use attributes only, not semantic_columns/required_columns")
         if not isinstance(columns, list) or not columns:
-            raise ValueError(f"{file}: expected non-empty semantic_columns")
+            raise ValueError(f"{file}: expected non-empty attributes")
         names = []
         for col in columns:
             if not isinstance(col, dict):
@@ -54,9 +54,11 @@ def _load_definitions(path):
                 raise ValueError(f"{file}: invalid inherited column name")
             if not isinstance(dtype, str) or not dtype.strip():
                 raise ValueError(f"{file}: column {name} requires data_type")
+            if set(col) != {"name", "data_type", "description"} or not isinstance(col.get("description"), str):
+                raise ValueError(f"{file}: attribute {name} must contain only name, data_type and description")
             names.append(name)
         if len(set(names)) != len(names):
-            raise ValueError(f"{file}: duplicate inherited column names")
+            raise ValueError(f"{file}: duplicate CDO attribute names")
         required = set(names)
         metrics = spec.get("metrics") or []
         if not isinstance(metrics, list):
@@ -87,31 +89,47 @@ def _compile_model(model, definitions, path):
     if key not in definitions:
         raise ValueError(f"{path}: unknown CDO parent/version {key}")
     parent = definitions[key]
-    alias_entities = inheritance.get("entity_aliases") or {}
-    alias_metrics = inheritance.get("metric_aliases") or {}
-    metric_labels = inheritance.get("metric_labels") or {}
-    if not isinstance(alias_entities, dict) or not isinstance(alias_metrics, dict) or not isinstance(metric_labels, dict):
-        raise ValueError(f"{path}: aliases must be mappings")
+    # Whitelist is mandatory: no implicit inheritance of newly added CDO fields.
+    include = inheritance.get("include")
+    if not isinstance(include, list) or not include or any(not isinstance(x, str) for x in include):
+        raise ValueError(f"{path}: semantic_inheritance.include must be a non-empty list")
+    if len(include) != len(set(include)):
+        raise ValueError(f"{path}: duplicate include attribute")
+    registry_columns = {column["name"]: column for column in parent["attributes"]}
+    unknown = set(include) - set(registry_columns)
+    if unknown:
+        raise ValueError(f"{path}: unknown CDO attributes in include: {sorted(unknown)}")
+
+    # Context is owned by the team, never centrally imposed by a CDO definition.
+    context = inheritance.get("context") or {}
+    if not isinstance(context, dict) or set(context) - {"columns", "agg_time_dimension"}:
+        raise ValueError(f"{path}: invalid semantic_inheritance.context")
+    col_context = context.get("columns") or {}
+    if not isinstance(col_context, dict) or set(col_context) - set(include):
+        raise ValueError(f"{path}: context.columns must reference included attributes only")
+    for name, override in col_context.items():
+        if not isinstance(override, dict) or set(override) & {"name", "data_type", "description"}:
+            raise ValueError(f"{path}: {name} context must not override CDO name/type/description")
     if not (model.get("semantic_model") or {}).get("enabled"):
         raise ValueError(f"{path}: inherited model must enable semantic_model")
-    if model.get("agg_time_dimension") not in (None, parent.get("agg_time_dimension")):
-        raise ValueError(f"{path}: cannot override CDO aggregation time dimension")
-    model["agg_time_dimension"] = parent["agg_time_dimension"]
+    agg_time = context.get("agg_time_dimension")
+    if agg_time is not None:
+        if agg_time not in include:
+            raise ValueError(f"{path}: agg_time_dimension must be included")
+        if model.get("agg_time_dimension") not in (None, agg_time):
+            raise ValueError(f"{path}: conflicting team agg_time_dimension")
+        model["agg_time_dimension"] = agg_time
 
-    inherited_columns = deepcopy(parent["semantic_columns"])
-    for col in inherited_columns:
-        entity = col.get("entity")
-        if entity and entity.get("name") in alias_entities:
-            entity["name"] = alias_entities[entity["name"]]
-    unexpected = set(alias_entities) - {
-        col["entity"]["name"] for col in parent["semantic_columns"] if col.get("entity")
-    }
-    if unexpected:
-        raise ValueError(f"{path}: unknown parent entities {sorted(unexpected)}")
+    inherited_columns = []
+    for name in include:
+        column = deepcopy(registry_columns[name])
+        column.update(deepcopy(col_context.get(name) or {}))
+        inherited_columns.append(column)
+
     local_columns = model.get("columns") or []
     if not isinstance(local_columns, list):
         raise ValueError(f"{path}: columns must be a list")
-    inherited_names = {col["name"] for col in inherited_columns}
+    inherited_names = set(include)
     additional_names = set()
     for col in local_columns:
         if not isinstance(col, dict) or not col.get("name"):
@@ -121,20 +139,28 @@ def _compile_model(model, definitions, path):
         if col["name"] in additional_names:
             raise ValueError(f"{path}: duplicate team column {col['name']}")
         additional_names.add(col["name"])
-    # Additional local columns are appended, never overwrite inherited columns.
     model["columns"] = inherited_columns + deepcopy(local_columns)
 
+    # Keep metric contracts in position_v1.yml. Existing team metric aliases
+    # opt in to metrics, and their referenced attributes must be whitelisted.
+    alias_metrics = inheritance.get("metric_aliases") or {}
+    metric_labels = inheritance.get("metric_labels") or {}
+    if not isinstance(alias_metrics, dict) or not isinstance(metric_labels, dict):
+        raise ValueError(f"{path}: metric aliases/labels must be mappings")
     available_metric_names = {m["name"] for m in parent.get("metrics") or []}
     unexpected = (set(alias_metrics) | set(metric_labels)) - available_metric_names
     if unexpected:
-        raise ValueError(f"{path}: unknown parent metrics {sorted(unexpected)}")
+        raise ValueError(f"{path}: unknown CDO metrics {sorted(unexpected)}")
     inherited_metrics = []
     for metric in parent.get("metrics") or []:
         name = alias_metrics.get(metric["name"])
         if not name:
-            raise ValueError(f"{path}: metric_aliases must name {metric['name']}")
+            continue
         if not IDENTIFIER.fullmatch(name):
             raise ValueError(f"{path}: invalid metric alias {name}")
+        expression = metric["metric"].get("expr")
+        if expression not in include:
+            raise ValueError(f"{path}: metric {metric['name']} requires included attribute {expression}")
         generated = deepcopy(metric["metric"])
         generated.update({
             "name": name,
@@ -158,9 +184,9 @@ def _compile_model(model, definitions, path):
     # existing semantic_contract marker for dbt manifest-based validation.
     contract = metadata.get("semantic_contract")
     expected = {"implements": parent["name"], "version": parent["version"]}
-    if contract and contract != expected:
+    if contract and any(contract.get(k) != v for k, v in expected.items()):
         raise ValueError(f"{path}: conflicting semantic_contract")
-    metadata["semantic_contract"] = expected
+    metadata["semantic_contract"] = {**expected, "included_attributes": deepcopy(include)}
     config["meta"] = metadata
     model["config"] = config
     return True
