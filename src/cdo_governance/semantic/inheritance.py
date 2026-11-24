@@ -208,7 +208,8 @@ def _compile_model(model, definitions, path):
     # Store normalized selected metric identifiers so composition can validate
     # both legacy and structured opt-ins without depending on authored syntax.
     metadata["semantic_contract"] = {**expected, "included_attributes": deepcopy(include),
-                                     "included_metrics": list(alias_metrics)}
+                                     "included_metrics": list(alias_metrics),
+                                     "lineage": deepcopy(parent.get("lineage") or [])}
     config["meta"] = metadata
     model["config"] = config
     return True
