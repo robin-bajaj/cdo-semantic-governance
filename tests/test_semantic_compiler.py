@@ -332,3 +332,98 @@ def test_nested_meta_uses_rejects_redundant_top_level_version(tmp_path):
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(ValueError, match="version belongs inside uses"):
         compile_semantics(root, registry)
+
+
+def test_attribute_alias_sets_team_semantic_entity_without_renaming_column(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    data = yaml.safe_load(path.read_text())
+    model = data["models"][0]
+    model["config"]["meta"] = {
+        "uses": {"name": "cdo.position", "version": 1},
+        "include": {
+            "attributes": [
+                {"name": "position_id", "alias": "equity_position_id",
+                 "entity": {"type": "primary"}},
+                {"name": "report_date", "dimension": {"type": "time"},
+                 "granularity": "day"},
+                {"name": "profit_loss"},
+                {"name": "instrument_code",
+                 "entity": {"name": "instrument", "type": "foreign"}},
+            ],
+            "metrics": [{"name": "total_profit_loss",
+                         "alias": "equity_profit_loss"}],
+        },
+    }
+    model["agg_time_dimension"] = "report_date"
+    path.write_text(yaml.safe_dump(data))
+    compile_semantics(root, registry)
+    compiled = yaml.safe_load(path.read_text())["models"][0]
+    columns = {column["name"]: column for column in compiled["columns"]}
+    assert "equity_position_id" not in columns
+    assert columns["position_id"]["data_type"] == "text"
+    assert columns["position_id"]["entity"] == {
+        "name": "equity_position_id", "type": "primary"}
+    assert compiled["config"]["meta"]["semantic_contract"]["included_attributes"][0] == "position_id"
+    assert next(m for m in compiled["metrics"] if m["name"] == "equity_profit_loss")["expr"] == "profit_loss"
+
+
+def test_attribute_alias_preserves_existing_matching_entity_name(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    data = yaml.safe_load(path.read_text())
+    data["models"][0]["config"]["meta"] = {
+        "uses": {"name": "cdo.position", "version": 1},
+        "include": {
+            "attributes": [{"name": "position_id", "alias": "equity_position_id",
+                            "entity": {"name": "equity_position_id", "type": "primary"}}],
+            "metrics": [],
+        },
+    }
+    path.write_text(yaml.safe_dump(data))
+    compile_semantics(root, registry)
+    result = yaml.safe_load(path.read_text())["models"][0]
+    assert result["columns"][0]["entity"]["name"] == "equity_position_id"
+
+
+@pytest.mark.parametrize("attr,reason", [
+    ({"name": "position_id", "alias": "equity_position_id",
+      "entity": {"name": "team_a_position", "type": "primary"}}, "conflicts with entity.name"),
+    ({"name": "position_id", "alias": "bad-alias",
+      "entity": {"type": "primary"}}, "invalid meta attribute alias"),
+    ({"name": "position_id", "alias": "equity_position_id"}, "requires exactly one entity or dimension"),
+    ({"name": "position_id", "alias": "equity_position_id",
+      "entity": {"type": "primary"}, "dimension": {"type": "categorical"}},
+     "requires exactly one entity or dimension"),
+])
+def test_attribute_alias_rejects_ambiguous_or_invalid_spec(tmp_path, attr, reason):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    data = yaml.safe_load(path.read_text())
+    data["models"][0]["config"]["meta"] = {
+        "uses": {"name": "cdo.position", "version": 1},
+        "include": {"attributes": [attr], "metrics": []},
+    }
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ValueError, match=reason):
+        compile_semantics(root, registry)
+
+
+def test_attribute_alias_sets_dimension_semantic_name(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    data = yaml.safe_load(path.read_text())
+    data["models"][0]["config"]["meta"] = {
+        "uses": {"name": "cdo.position", "version": 1},
+        "include": {
+            "attributes": [{"name": "report_date", "alias": "equity_report_date",
+                            "dimension": {"type": "time"}, "granularity": "day"}],
+            "metrics": [],
+        },
+    }
+    data["models"][0]["agg_time_dimension"] = "report_date"
+    path.write_text(yaml.safe_dump(data))
+    compile_semantics(root, registry)
+    result = yaml.safe_load(path.read_text())["models"][0]
+    assert result["columns"][0]["name"] == "report_date"
+    assert result["columns"][0]["dimension"]["name"] == "equity_report_date"
