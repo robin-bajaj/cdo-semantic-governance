@@ -126,9 +126,20 @@ def generate(catalog_path, output_directory):
 
     # Aggregate governed Position P&L across Team A and Team C in the
     # CDO unified view. The separate enterprise derived metric stays retired.
+    # The enterprise P&L calculation must come from the resolved CDO contract,
+    # never from a second hardcoded implementation in the generator.
+    governed_metrics = {m["name"]: m for m in catalog.get("metric_definitions") or []}
+    governed_pnl = governed_metrics.get("total_profit_loss")
+    if (len(governed_metrics) != len(catalog.get("metric_definitions") or []) or
+            not isinstance(governed_pnl, dict) or
+            governed_pnl.get("type") != "simple" or
+            governed_pnl.get("agg") != "sum" or
+            governed_pnl.get("expr") != "profit_loss" or
+            governed_pnl.get("fill_nulls_with") != 0):
+        raise ValueError("Missing or incompatible governed Position P&L metric")
     metrics = [
-        {"name": "cdo_total_profit_loss", "label": "CDO Total Profit Loss",
-         "type": "simple", "agg": "sum", "expr": "profit_loss"},
+        {**{k: v for k, v in governed_pnl.items() if k != "name"},
+         "name": "cdo_total_profit_loss", "label": "CDO Total Profit Loss"},
         {"name": "cdo_position_row_count", "label": "CDO Position Row Count",
          "description": "Number of position rows across team/date; not necessarily distinct enterprise positions.",
          "type": "simple", "agg": "count", "expr": "position_id"},
