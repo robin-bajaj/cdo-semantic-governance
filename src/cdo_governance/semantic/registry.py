@@ -168,3 +168,20 @@ def resolve_contract(path, name, version):
     if key not in registry:
         raise ValueError(f"Unknown CDO contract/version {key}")
     return registry[key]
+
+
+def main():
+    """Validate the entire registry without modifying source files."""
+    import argparse
+    parser = argparse.ArgumentParser(description="Validate all versioned CDO concepts")
+    parser.add_argument("--registry", type=Path, required=True)
+    args = parser.parse_args()
+    definitions = load_registry(args.registry)
+    for name, version in sorted(definitions):
+        item = definitions[(name, version)]
+        print(f"VALID {name} v{version}: {len(item['attributes'])} attributes; "
+              f"{len(item['metrics'])} metrics; {len(item['lineage'])} parents")
+
+
+if __name__ == "__main__":
+    main()
