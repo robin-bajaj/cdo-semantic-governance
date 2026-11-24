@@ -19,7 +19,7 @@ attributes:
     description: Financial instrument identifier
 
 metrics:
-  - name: profit_loss
+  - name: total_profit_loss
     description: Total position profit and loss
     type: simple
     agg: sum
