@@ -83,28 +83,37 @@ def _load_definitions(path):
 
 
 def _normalize_cdo_declaration(model, path):
-    """Translate structured meta.cdo.uses into the existing strict compiler DSL."""
+    """Normalize flat meta.uses, nested meta.cdo, or legacy inheritance metadata."""
     metadata = ((model.get("config") or {}).get("meta") or {})
-    declaration = metadata.get("cdo")
-    if declaration is None:
-        return metadata.get("semantic_inheritance")
-    if "semantic_inheritance" in metadata:
+    flat_keys = {"uses", "version", "include"}
+    has_flat = bool(flat_keys & set(metadata))
+    has_nested = "cdo" in metadata
+    has_legacy = "semantic_inheritance" in metadata
+    if sum((has_flat, has_nested, has_legacy)) > 1:
         raise ValueError(f"{path}: use only one inheritance syntax")
-    if not isinstance(declaration, dict) or set(declaration) != {"uses", "version", "include"}:
-        raise ValueError(f"{path}: meta.cdo must define uses, version, and include")
+    if has_flat:
+        declaration = {k: metadata[k] for k in flat_keys if k in metadata}
+        location = "meta"
+    elif has_nested:
+        declaration = metadata["cdo"]
+        location = "meta.cdo"
+    else:
+        return metadata.get("semantic_inheritance")
+    if not isinstance(declaration, dict) or set(declaration) != flat_keys:
+        raise ValueError(f"{path}: {location} must define uses, version, and include")
     included = declaration["include"]
     if not isinstance(included, dict) or set(included) != {"attributes", "metrics"}:
-        raise ValueError(f"{path}: meta.cdo.include must define attributes and metrics")
+        raise ValueError(f"{path}: {location}.include must define attributes and metrics")
     attrs, metrics = included["attributes"], included["metrics"]
     if not isinstance(attrs, list) or not attrs or not isinstance(metrics, list):
-        raise ValueError(f"{path}: meta.cdo include attributes/metrics must be lists")
+        raise ValueError(f"{path}: {location} include attributes/metrics must be lists")
     names, context = [], {}
     for attribute in attrs:
         if not isinstance(attribute, dict) or set(attribute) - {"name", "entity", "dimension", "granularity"}:
-            raise ValueError(f"{path}: invalid meta.cdo attribute")
+            raise ValueError(f"{path}: invalid {location} attribute")
         name = attribute.get("name")
         if not isinstance(name, str) or not IDENTIFIER.fullmatch(name):
-            raise ValueError(f"{path}: invalid meta.cdo attribute name")
+            raise ValueError(f"{path}: invalid {location} attribute name")
         names.append(name)
         extra = {k: deepcopy(v) for k, v in attribute.items() if k != "name"}
         if extra:
@@ -114,7 +123,7 @@ def _normalize_cdo_declaration(model, path):
     aliases, labels = {}, {}
     for metric in metrics:
         if not isinstance(metric, dict) or set(metric) - {"name", "alias", "label"}:
-            raise ValueError(f"{path}: invalid meta.cdo metric")
+            raise ValueError(f"{path}: invalid {location} metric")
         name, alias = metric.get("name"), metric.get("alias")
         if not isinstance(name, str) or not isinstance(alias, str):
             raise ValueError(f"{path}: each inherited metric requires name and alias")
