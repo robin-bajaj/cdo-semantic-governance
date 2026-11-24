@@ -104,13 +104,13 @@ def compose_cdo(project_path, contract_path, manifest_path, output_path,
             if meta:
                 inherited_metric_names.add(meta.get("implements"))
                 parent = next((p for p in contract.get("metrics") or [] if p["name"] == meta.get("implements")), None)
-                if parent is None or str(meta.get("version")) != str(parent["version"]):
+                if parent is None or str(meta.get("version")) != str(contract["version"]):
                     raise ValueError(f"{name}: unknown inherited metric contract")
-                for prop in ("type", "agg", "expr"):
-                    if m.get(prop) != parent["metric"].get(prop):
+                for prop in ("type", "agg", "expr", "fill_nulls_with"):
+                    if m.get(prop) != parent.get(prop):
                         raise ValueError(f"{name}: inherited metric {m['name']} overrides {prop}")
         expected_metrics = {m["name"] for m in contract.get("metrics") or []}
-        opted_metric_names = set(((model.get("config") or {}).get("meta") or {}).get("semantic_inheritance", {}).get("metric_aliases") or {})
+        opted_metric_names = set(marker.get("included_metrics") or [])
         if inherited_metric_names != opted_metric_names or inherited_metric_names - expected_metrics:
             raise ValueError(f"{name}: inherited metrics do not match selected metric aliases")
 
