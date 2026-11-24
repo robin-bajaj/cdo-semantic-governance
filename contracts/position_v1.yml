@@ -1,39 +1,27 @@
-# CDO-owned reusable Position business attribute dictionary.
-# Teams explicitly whitelist attributes and supply dbt-specific semantic context.
-# This custom definition is not a native dbt semantic model.
 name: cdo.position
 version: 1
-owner: CDO
-description: >-
-  Enterprise Position business concept; attribute names, types and descriptions
-  are governed centrally, while teams own semantic entity/dimension mapping.
 
 attributes:
   - name: position_id
     data_type: text
-    description: Identifier of a position within its source system
+    description: Position identifier
+
   - name: report_date
     data_type: date
-    description: Business reporting date of the position
+    description: Business reporting date
+
   - name: profit_loss
     data_type: numeric
-    description: Standardized position profit and loss
+    description: Standardized profit and loss
+
   - name: instrument_code
     data_type: integer
-    description: Identifier of the financial instrument
+    description: Financial instrument identifier
 
-# Kept in this same versioned business definition, as requested.
-# A team including the metric must also include its referenced attributes.
 metrics:
-  - name: cdo.profit_loss
-    version: 1
-    label: Profit and Loss
-    description: Total position profit and loss over the query's dimensions and date.
-    owner: CDO
-    metric:
-      type: simple
-      agg: sum
-      expr: profit_loss
-      fill_nulls_with: 0
-
-require_native_contract: true
+  - name: profit_loss
+    description: Total position profit and loss
+    type: simple
+    agg: sum
+    expr: profit_loss
+    fill_nulls_with: 0
