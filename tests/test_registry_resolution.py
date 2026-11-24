@@ -135,3 +135,11 @@ def test_existing_team_compilation_and_composition_accept_resolved_registry(tmp_
         model = yaml.safe_load((fresh_root / "models" / f"{team}.yml").read_text())["models"][0]
         assert model["config"]["meta"]["semantic_contract"]["implements"] == "cdo.position"
         assert model["metrics"][0]["expr"] == "profit_loss"
+
+
+def test_checked_in_contract_filenames_match_logical_names_and_versions():
+    """A published contract's path should identify its dotted name and version."""
+    for path in sorted(HERE.glob("*.yml")) + sorted(HERE.glob("*.yaml")):
+        contract = yaml.safe_load(path.read_text())
+        expected = contract["name"].replace(".", "_") + f"_v{contract['version']}" + path.suffix
+        assert path.name == expected, f"{path.name} should be {expected}"
