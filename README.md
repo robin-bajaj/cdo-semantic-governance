@@ -196,3 +196,53 @@ python -m cdo_governance.semantic.position_composer \
 ```
 
 The validated `artifacts/cdo/position_v1_composition.yml` remains the reviewable **persistent** CDO provenance catalog. The generated Team A/C and CDO enterprise dbt semantic YAML needs no CDO-specific `meta`. Actual runtime source mappings remain in CDO-generated SQL `ref()` references, not in governance metadata. Legacy direct API callers that omit bindings are supported temporarily but cannot validate newly generated models without the external bindings.
+
+
+## CDO-controlled composition — no UI
+
+The CDO selects the validated Position semantic models, attributes and metrics in the
+reviewed, versioned `compositions/cdo_position_v1.yml`. Teams independently own
+their original semantic implementations. The contract registry is unchanged.
+
+The composer first **validates all implementations** against the CDO registry
+and dbt manifest, then outputs a discoverable list of eligible models, their
+columns and supported simple metrics. Review the discovery output before editing
+the selection file:
+
+```bash
+python -m cdo_governance.semantic.position_composer \
+  --project . --contract ../cdo-governance/contracts \
+  --manifest target/manifest.json \
+  --bindings .ci/cdo-resolved-bindings.yml \
+  --discovery-output .ci/cdo-position-options.yml \
+  --selection ../cdo-governance/compositions/cdo_position_v1.yml \
+  --output .ci/cdo-current-composition.yml
+cat .ci/cdo-position-options.yml
+```
+
+CI should publish this discovery YAML as an artifact to help CDO choose without a UI.
+The separate, direct discovery CLI can inspect a validated *unfiltered* catalog:
+
+```bash
+python -m cdo_governance.semantic.position_selection \
+  --catalog /tmp/validated-unfiltered-cdo-catalog.yml --list-implementations
+```
+
+Only listed, validated implementations may be selected. Each selected source
+must include `position_id`, `report_date` and `profit_loss` for this
+Position POC; other attributes and supported `sum`/`count` metrics are
+optional. Selected metric expressions must reference attributes selected from
+the same team. The generator projects team metric inputs as distinct NULL-padded
+columns so the aggregation cannot include values from non-owning teams.
+Unsupported formulas, filters, unknown models, version mismatches, duplicates
+and missing dependencies fail closed.
+
+The filtered composition is the input to the normal native SQL/YAML generator.
+The generated CDO SQL view contains **only selected sources and attributes**;
+native CDO metrics contain **only selected metrics**. The approved composition
+catalog is still stored in `artifacts/cdo/position_v1_composition.yml`, while
+compiled Team A/C models remain unchanged and contain no CDO `meta`.
+
+Changing a CDO selection requires a governance-repository PR, updated reviewed
+governance commit pin in the federated repository, passing CI and the protected
+`generated/production` release. Hosted dbt Cloud publication remains separate.

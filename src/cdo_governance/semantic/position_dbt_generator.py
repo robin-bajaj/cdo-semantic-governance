@@ -24,6 +24,9 @@ def generate(catalog_path, output_directory):
         raise ValueError("Unsupported composition catalog format")
     if catalog.get("contract") != {"name": "cdo.position", "version": 1}:
         raise ValueError("Unexpected CDO position contract")
+    if "composition_selection" in catalog:
+        from .selected_position_dbt_generator import generate_selected
+        return generate_selected(catalog, output_directory)
     implementations = catalog.get("implementations") or []
     names = {x.get("semantic_model") for x in implementations}
     if len(implementations) != 2 or names != {"team_a_equity_positions", "team_c_fi_positions"}:
