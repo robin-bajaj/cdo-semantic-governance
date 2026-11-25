@@ -4,8 +4,17 @@ import json
 import pytest
 import yaml
 
-from cdo_governance.semantic.semantic_compiler import compile_semantics
-from cdo_governance.semantic.position_composer import compose_cdo
+from cdo_governance.semantic.semantic_compiler import compile_semantics as _compile_semantics
+from cdo_governance.semantic.position_composer import compose_cdo as _compose_cdo
+
+
+def compile_semantics(root, registry):
+    return _compile_semantics(root, registry, root.parent / "bindings.yml")
+
+
+def compose_cdo(root, contract, manifest, output, expected_teams=None):
+    return _compose_cdo(root, contract, manifest, output, expected_teams,
+                        root.parent / "bindings.yml")
 from test_semantic_compiler import project
 
 
@@ -53,6 +62,8 @@ def test_preserves_common_and_all_team_extensions(tmp_path):
     assert {m["name"] for m in a["metrics"]} == {"team_a_profit_loss", "team_a_count"}
     assert {m["name"] for m in c["metrics"]} == {"team_c_profit_loss", "team_c_count"}
     assert "enterprise_metrics" not in result
+    assert not any("meta" in m.get("config", {}) for m in a["metrics"])
+    assert "meta" not in yaml.safe_load((root / "models" / "team_a.yml").read_text())["models"][0]["config"]
     before = output.read_bytes()
     compose_cdo(root, contract, manifest, output,
                 ["team_a_positions", "team_c_positions"])
@@ -134,4 +145,27 @@ def test_flat_cdo_contract_defaults_to_native_enforcement(tmp_path):
     first["config"]["contract"]["enforced"] = False
     manifest.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="Native dbt contract is not enforced"):
+        compose_cdo(root, contract, manifest, tmp_path / "catalog.yml")
+
+
+def test_rejects_missing_or_corrupt_ephemeral_bindings(tmp_path):
+    root, contract, manifest = setup_compiled(tmp_path)
+    bindings = root.parent / "bindings.yml"
+    bindings.unlink()
+    with pytest.raises(FileNotFoundError):
+        compose_cdo(root, contract, manifest, tmp_path / "catalog.yml")
+    _compile = yaml.safe_load(manifest.read_text())
+    # A fabricated empty binding map must not silently validate zero teams.
+    bindings.write_text(yaml.safe_dump({"format": "cdo-resolved-bindings/v1", "models": {}}))
+    with pytest.raises(ValueError, match="resolved CDO bindings"):
+        compose_cdo(root, contract, manifest, tmp_path / "catalog.yml")
+
+
+def test_rejects_tampered_metric_formula_using_out_of_band_binding(tmp_path):
+    root, contract, manifest = setup_compiled(tmp_path)
+    path = root / "models" / "team_a.yml"
+    compiled = yaml.safe_load(path.read_text())
+    compiled["models"][0]["metrics"][0]["expr"] = "mtm"
+    path.write_text(yaml.safe_dump(compiled))
+    with pytest.raises(ValueError, match="overrides expr"):
         compose_cdo(root, contract, manifest, tmp_path / "catalog.yml")
