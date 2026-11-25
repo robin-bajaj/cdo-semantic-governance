@@ -176,16 +176,11 @@ def generate(catalog_path, output_directory):
                 "type": "simple",
                 "agg": "sum",
                 "expr": expr,
-                "config": {"meta": {"source_team_metric": source_metric["name"],
-                                    "owner": implementation.get("owner"),
-                                    "source_semantic_model": implementation["semantic_model"]}}
             })
 
     schema = {"version": 2, "models": [{
         "name": MODEL_NAME,
         "description": "CDO unified Position view composed from validated Team A and Team C sources.",
-        "config": {"meta": {"cdo_contract": "cdo.position", "cdo_contract_version": 1,
-                            "composition_sources": [s for _, s, _ in source_maps]}},
         "semantic_model": {"enabled": True, "name": "cdo_enterprise_positions"},
         "primary_entity": "cdo_position",
         "agg_time_dimension": "report_date",
