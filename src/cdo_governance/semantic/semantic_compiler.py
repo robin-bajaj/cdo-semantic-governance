@@ -232,8 +232,9 @@ def _compile_model(model, definitions, path):
         raise ValueError(f"{path}: duplicate metric alias/local name")
     model["metrics"] = inherited_metrics + deepcopy(local_metrics)
 
-    # Keep original inheritance declaration for traceability, but inject the
-    # existing semantic_contract marker for dbt manifest-based validation.
+    # Compiled YAML is a runtime dbt artifact. Remove the authored custom
+    # inheritance DSL after resolving it; keep the normalized contract marker
+    # because manifest validation and composition explicitly depend on it.
     contract = metadata.get("semantic_contract")
     expected = {"implements": parent["name"], "version": parent["version"]}
     if contract and any(contract.get(k) != v for k, v in expected.items()):
@@ -243,6 +244,8 @@ def _compile_model(model, definitions, path):
     metadata["semantic_contract"] = {**expected, "included_attributes": deepcopy(include),
                                      "included_metrics": list(alias_metrics),
                                      "lineage": deepcopy(parent.get("lineage") or [])}
+    for authored_key in ("uses", "version", "include", "cdo", "semantic_inheritance"):
+        metadata.pop(authored_key, None)
     config["meta"] = metadata
     model["config"] = config
     return True
