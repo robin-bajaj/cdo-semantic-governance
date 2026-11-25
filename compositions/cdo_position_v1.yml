@@ -1,0 +1,40 @@
+# CDO-owned, version-controlled enterprise Position publication selection.
+# Choose validated semantic implementations, attributes, and metrics.
+# Core Position fields: position_id, report_date, profit_loss (required per source).
+# Only selected sources/fields/metrics are projected into the CDO output.
+# Team-authored models are not changed by these selections.
+name: cdo_enterprise_positions
+contract:
+  name: cdo.position
+  version: 1
+
+sources:
+  - semantic_model: team_a_equity_positions
+    source_team: TEAM_A
+    include:
+      attributes:
+        - position_id
+        - report_date
+        - profit_loss
+        - instrument_code
+        - mtm
+        - cash
+      metrics:
+        - equity_total_mtm
+        - equity_total_cash
+
+  - semantic_model: team_c_fi_positions
+    source_team: TEAM_C
+    include:
+      attributes:
+        - position_id
+        - report_date
+        - profit_loss
+        - instrument_code
+        - settled_cash
+      metrics:
+        - fi_total_settled_cash
+
+enterprise_metrics:
+  - cdo_total_profit_loss
+  - cdo_position_row_count
