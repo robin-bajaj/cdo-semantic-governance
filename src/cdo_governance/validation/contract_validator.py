@@ -1,7 +1,7 @@
-"""Validate dbt manifest model nodes against resolved CDO business contracts.
+"""Validate parsed dbt models against resolved, out-of-band CDO bindings.
 
-Models opt in through config.meta.semantic_contract.implements. Legacy
-required_models configurations remain supported for backwards compatibility.
+The native dbt model contains no custom CDO metadata. Generated bindings
+are supplied by CI, and are checked against the parsed manifest.
 """
 
 import re
@@ -19,7 +19,8 @@ def _implementation(node: dict) -> dict:
     return meta.get("semantic_contract") or {}
 
 
-def validate_cdo_contract(manifest: dict, contract: dict) -> list[str]:
+def validate_cdo_contract(manifest: dict, contract: dict,
+                          bindings: dict | None = None) -> list[str]:
     """Return contract violations (an empty list means validation passed).
 
     Preferred independent-project mode:
@@ -30,6 +31,12 @@ def validate_cdo_contract(manifest: dict, contract: dict) -> list[str]:
     Legacy single-project mode:
         If required_models is explicitly present, validate those named models.
     """
+    if bindings is not None:
+        if (not isinstance(bindings, dict) or
+                bindings.get("format") != "cdo-resolved-bindings/v1" or
+                not isinstance(bindings.get("models"), dict) or
+                not bindings["models"]):
+            raise ValueError("Missing or invalid resolved CDO bindings")
     name = contract["name"]
     version = str(contract["version"])
     # The semantic definition is also the required data interface.
@@ -73,8 +80,27 @@ def validate_cdo_contract(manifest: dict, contract: dict) -> list[str]:
                 errors.append(f"{model_name}: Multiple models found with this name")
             else:
                 selected.append(matches[0])
+    elif bindings is not None:
+        # Never silently omit a team when its parsed model is absent.
+        selected = []
+        for model_name, binding in bindings["models"].items():
+            marker = binding.get("semantic_contract") if isinstance(binding, dict) else None
+            if not isinstance(marker, dict):
+                errors.append(f"{model_name}: missing resolved semantic_contract")
+                continue
+            if marker.get("implements") != name:
+                errors.append(f"{model_name}: binding implements a different contract")
+                continue
+            matches = [m for m in models if m.get("name") == model_name]
+            if len(matches) != 1:
+                errors.append(f"{model_name}: expected exactly one compiled model, got {len(matches)}")
+                continue
+            selected.append(matches[0])
+        if not selected:
+            errors.append(f"No parsed implementations for {name}")
+            return errors
     else:
-        # No globally prescribed physical model names; each team owns its own.
+        # Legacy fallback for standalone consumers until migrated to bindings.
         selected = [m for m in models if _implementation(m).get("implements") == name]
         if not selected:
             return [
@@ -84,7 +110,8 @@ def validate_cdo_contract(manifest: dict, contract: dict) -> list[str]:
 
     for model in selected:
         model_name = model.get("name") or "<unnamed model>"
-        implementation = _implementation(model)
+        implementation = (bindings["models"][model_name]["semantic_contract"]
+                          if bindings is not None else _implementation(model))
 
         if implementation.get("implements") != name:
             errors.append(f"{model_name}: Does not implement {name}")

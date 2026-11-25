@@ -124,7 +124,7 @@ def _normalize_cdo_declaration(model, path):
     }
 
 
-def _compile_model(model, definitions, path):
+def _compile_model(model, definitions, path, bindings=None):
     config = model.get("config") or {}
     metadata = config.get("meta") or {}
     inheritance = _normalize_cdo_declaration(model, path)
@@ -218,10 +218,6 @@ def _compile_model(model, definitions, path):
             "name": name,
             "label": metric_labels.get(metric["name"]) or metric.get("label") or name,
             "description": metric.get("description") or "",
-            "config": {"meta": {"metric_contract": {
-                "implements": metric["name"],
-                "version": parent["version"],
-            }}},
         })
         inherited_metrics.append(generated)
     local_metrics = model.get("metrics") or []
@@ -232,26 +228,42 @@ def _compile_model(model, definitions, path):
         raise ValueError(f"{path}: duplicate metric alias/local name")
     model["metrics"] = inherited_metrics + deepcopy(local_metrics)
 
-    # Compiled YAML is a runtime dbt artifact. Remove the authored custom
-    # inheritance DSL after resolving it; keep the normalized contract marker
-    # because manifest validation and composition explicitly depend on it.
-    contract = metadata.get("semantic_contract")
+    # Transport the contract identity and selections in a temporary CI artifact,
+    # never inside the deployable dbt semantic YAML.
     expected = {"implements": parent["name"], "version": parent["version"]}
+    contract = metadata.get("semantic_contract")
     if contract and any(contract.get(k) != v for k, v in expected.items()):
         raise ValueError(f"{path}: conflicting semantic_contract")
-    # Store normalized selected metric identifiers so composition can validate
-    # both legacy and structured opt-ins without depending on authored syntax.
-    metadata["semantic_contract"] = {**expected, "included_attributes": deepcopy(include),
-                                     "included_metrics": list(alias_metrics),
-                                     "lineage": deepcopy(parent.get("lineage") or [])}
-    for authored_key in ("uses", "version", "include", "cdo", "semantic_inheritance"):
+    resolved_contract = {
+        **expected,
+        "included_attributes": deepcopy(include),
+        "included_metrics": list(alias_metrics),
+        "lineage": deepcopy(parent.get("lineage") or []),
+    }
+    if bindings is not None:
+        name = model["name"]
+        if name in bindings:
+            raise ValueError(f"{path}: duplicate CDO implementation {name}")
+        bindings[name] = {
+            "semantic_contract": resolved_contract,
+            "metric_contracts": {
+                alias_metrics[m["name"]]: {"implements": m["name"], "version": parent["version"]}
+                for m in parent.get("metrics") or [] if m["name"] in alias_metrics
+            },
+        }
+    for authored_key in ("uses", "version", "include", "cdo",
+                         "semantic_inheritance", "semantic_contract"):
         metadata.pop(authored_key, None)
-    config["meta"] = metadata
+    if metadata:
+        config["meta"] = metadata
+    else:
+        config.pop("meta", None)
     model["config"] = config
     return True
 
 
-def compile_semantics(project_path: Path, registry_path: Path) -> list[str]:
+def compile_semantics(project_path: Path, registry_path: Path,
+                      bindings_output: Path | None = None) -> list[str]:
     """Expand inheritance in models YAML. Validate every file before writing any."""
     project = Path(project_path)
     models = project / "models"
@@ -259,6 +271,7 @@ def compile_semantics(project_path: Path, registry_path: Path) -> list[str]:
         raise ValueError(f"Models directory not found: {models}")
     definitions = _load_definitions(registry_path)
     pending = []
+    bindings = {}
     count = 0
     for path in sorted(models.rglob("*.yml")) + sorted(models.rglob("*.yaml")):
         content = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -268,15 +281,24 @@ def compile_semantics(project_path: Path, registry_path: Path) -> list[str]:
             raise ValueError(f"{path}: expected YAML mapping")
         changed = False
         for model in content.get("models") or []:
-            if _compile_model(model, definitions, path):
+            if _compile_model(model, definitions, path, bindings):
                 count += 1
                 changed = True
         if changed:
             pending.append((path, yaml.safe_dump(content, sort_keys=False, width=100, allow_unicode=True)))
     if not count:
         raise ValueError("No semantic_inheritance declarations found; refusing empty build")
+    if bindings_output is not None:
+        bindings_output = Path(bindings_output)
+        if bindings_output.resolve().is_relative_to(models.resolve()):
+            raise ValueError("Bindings must not be written inside dbt models")
+        payload = {"format": "cdo-resolved-bindings/v1", "models": bindings}
+        binding_text = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
     for path, text in pending:
         path.write_text(text, encoding="utf-8")
+    if bindings_output is not None:
+        bindings_output.parent.mkdir(parents=True, exist_ok=True)
+        bindings_output.write_text(binding_text, encoding="utf-8")
     return [str(path) for path, _ in pending]
 
 
@@ -287,8 +309,9 @@ def main():
     parser = argparse.ArgumentParser(description="Compile CDO semantic inheritance into native dbt YAML")
     parser.add_argument("--registry", required=True, type=Path)
     parser.add_argument("--project", required=True, type=Path)
+    parser.add_argument("--bindings-output", type=Path)
     args = parser.parse_args()
-    changed = compile_semantics(args.project, args.registry)
+    changed = compile_semantics(args.project, args.registry, args.bindings_output)
     print(f"Compiled semantic inheritance in {len(changed)} YAML file(s)")
 
 
