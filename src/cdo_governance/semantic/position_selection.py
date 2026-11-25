@@ -45,6 +45,30 @@ def _eligible_metric(metric, source_columns, selected_attributes=None):
     return True
 
 
+def _semantic_attribute(column):
+    """Describe a validated source column's semantic role without renaming it.
+
+    CDO composition still selects canonical physical column identifiers.
+    Entity/dimension names are descriptive discovery metadata, not CDO aliases.
+    """
+    field = {"name": column["name"], "data_type": column.get("data_type")}
+    entity = column.get("entity")
+    dimension = column.get("dimension")
+    if entity is not None:
+        if not isinstance(entity, dict):
+            raise ValueError(f"{column['name']}: invalid semantic entity")
+        field["semantic_entity"] = entity.get("name") or column["name"]
+        field["entity_type"] = entity.get("type")
+    if dimension is not None:
+        if not isinstance(dimension, dict):
+            raise ValueError(f"{column['name']}: invalid semantic dimension")
+        field["semantic_dimension"] = dimension.get("name") or column["name"]
+        field["dimension_type"] = dimension.get("type")
+        if column.get("granularity") is not None:
+            field["granularity"] = column["granularity"]
+    return field
+
+
 def available_implementations(catalog):
     """Discovery lists candidates and supported metrics WITHOUT applying a selection."""
     available = []
@@ -55,6 +79,7 @@ def available_implementations(catalog):
             "source_model": impl["source_model"],
             "owner": impl.get("owner"),
             "attributes": [col["name"] for col in impl["columns"]],
+            "attribute_semantics": [_semantic_attribute(col) for col in impl["columns"]],
             "metrics": [
                 m["name"] for m in impl["metrics"]
                 if _eligible_metric(m, cols)
