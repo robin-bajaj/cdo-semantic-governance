@@ -2,7 +2,16 @@
 from copy import deepcopy
 import pytest
 import yaml
-from cdo_governance.semantic.semantic_compiler import compile_semantics
+from cdo_governance.semantic.semantic_compiler import compile_semantics as _compile_semantics
+
+
+def compile_semantics(root, registry):
+    return _compile_semantics(root, registry, root.parent / "bindings.yml")
+
+
+def contract_for(root, team="team_a"):
+    return yaml.safe_load((root.parent / "bindings.yml").read_text())["models"][f"stg_{team}_positions"]["semantic_contract"]
+
 
 CDO = {
     "name": "cdo.position", "version": 1, "owner": "CDO",
@@ -60,7 +69,7 @@ def test_inherits_all_columns_entities_dimensions_and_formula(tmp_path):
         assert model["metrics"][0]["agg"] == "sum"
         assert model["metrics"][0]["expr"] == "profit_loss"
         assert model["metrics"][0]["name"] == f"{team}_profit_loss"
-        assert model["config"]["meta"]["semantic_contract"]["implements"] == "cdo.position"
+        assert contract_for(root, team)["implements"] == "cdo.position"
         assert len(model["columns"]) == 5
         assert len(model["metrics"]) == 2
 
@@ -124,7 +133,7 @@ def test_include_selects_only_whitelisted_attributes(tmp_path):
     compile_semantics(root, registry)
     model = yaml.safe_load(path.read_text())["models"][0]
     assert "instrument_code" not in {c["name"] for c in model["columns"]}
-    assert model["config"]["meta"]["semantic_contract"]["included_attributes"] == inheritance["include"]
+    assert contract_for(root, "team_c")["included_attributes"] == inheritance["include"]
 
 
 def test_missing_include_fails_closed(tmp_path):
@@ -195,8 +204,8 @@ def test_structured_cdo_uses_compiles_same_contract(tmp_path):
     assert cols["instrument_code"]["entity"]["type"] == "foreign"
     metric = next(x for x in result["metrics"] if x["name"] == "equity_profit_loss")
     assert (metric["agg"], metric["expr"]) == ("sum", "profit_loss")
-    assert result["config"]["meta"]["semantic_contract"]["implements"] == "cdo.position"
-    assert result["config"]["meta"]["semantic_contract"]["included_metrics"] == ["total_profit_loss"]
+    assert contract_for(root)["implements"] == "cdo.position"
+    assert contract_for(root)["included_metrics"] == ["total_profit_loss"]
 
 
 def test_structured_cdo_uses_rejects_parent_override(tmp_path):
@@ -246,8 +255,8 @@ def test_flat_meta_uses_inherits_same_cdo_contract(tmp_path):
     path.write_text(yaml.safe_dump(document))
     compile_semantics(root, registry)
     compiled = yaml.safe_load(path.read_text())["models"][0]
-    assert compiled["config"]["meta"]["semantic_contract"]["implements"] == "cdo.position"
-    assert compiled["config"]["meta"]["semantic_contract"]["included_metrics"] == ["total_profit_loss"]
+    assert contract_for(root)["implements"] == "cdo.position"
+    assert contract_for(root)["included_metrics"] == ["total_profit_loss"]
     assert next(m for m in compiled["metrics"] if m["name"] == "equity_profit_loss")["expr"] == "profit_loss"
     assert next(c for c in compiled["columns"] if c["name"] == "position_id")["entity"]["type"] == "primary"
 
@@ -296,8 +305,8 @@ def test_nested_meta_uses_compiles_team_and_preserves_metric_alias(tmp_path):
     path.write_text(yaml.safe_dump(data))
     assert len(compile_semantics(root, registry)) == 2
     compiled = yaml.safe_load(path.read_text())["models"][0]
-    assert compiled["config"]["meta"]["semantic_contract"]["implements"] == "cdo.position"
-    assert compiled["config"]["meta"]["semantic_contract"]["version"] == 1
+    assert contract_for(root)["implements"] == "cdo.position"
+    assert contract_for(root)["version"] == 1
     assert next(x for x in compiled["metrics"] if x["name"] == "equity_profit_loss")["expr"] == "profit_loss"
 
 
@@ -364,7 +373,7 @@ def test_attribute_alias_sets_team_semantic_entity_without_renaming_column(tmp_p
     assert columns["position_id"]["data_type"] == "text"
     assert columns["position_id"]["entity"] == {
         "name": "equity_position_id", "type": "primary"}
-    assert compiled["config"]["meta"]["semantic_contract"]["included_attributes"][0] == "position_id"
+    assert contract_for(root)["included_attributes"][0] == "position_id"
     assert next(m for m in compiled["metrics"] if m["name"] == "equity_profit_loss")["expr"] == "profit_loss"
 
 
@@ -452,18 +461,20 @@ def test_compiled_team_yaml_keeps_only_runtime_contract_metadata(tmp_path):
     path.write_text(yaml.safe_dump(document))
     compile_semantics(root, registry)
     compiled = yaml.safe_load(path.read_text())["models"][0]
-    meta = compiled["config"]["meta"]
-    assert set(meta) == {"semantic_contract"}
-    assert meta["semantic_contract"]["implements"] == "cdo.position"
-    assert meta["semantic_contract"]["version"] == 1
-    assert meta["semantic_contract"]["included_metrics"] == ["total_profit_loss"]
-    assert meta["semantic_contract"]["included_attributes"] == [
+    assert "meta" not in compiled["config"]
+    meta = contract_for(root)
+    assert meta["implements"] == "cdo.position"
+    assert meta["version"] == 1
+    assert meta["included_metrics"] == ["total_profit_loss"]
+    assert meta["included_attributes"] == [
         "position_id", "report_date", "profit_loss", "instrument_code"]
-    assert meta["semantic_contract"]["lineage"] == []
+    assert meta["lineage"] == []
     columns = {c["name"]: c for c in compiled["columns"]}
     assert columns["position_id"]["entity"]["name"] == "equity_position_id"
     metric = next(m for m in compiled["metrics"] if m["name"] == "equity_profit_loss")
-    assert metric["config"]["meta"]["metric_contract"] == {
+    assert "config" not in metric
+    bindings = yaml.safe_load((root.parent / "bindings.yml").read_text())
+    assert bindings["models"]["stg_team_a_positions"]["metric_contracts"]["equity_profit_loss"] == {
         "implements": "total_profit_loss", "version": 1}
 
 
@@ -471,4 +482,4 @@ def test_legacy_inheritance_declaration_not_leaked_into_compiled_yaml(tmp_path):
     root, registry = project(tmp_path)
     compile_semantics(root, registry)
     model = yaml.safe_load((root / "models" / "team_a.yml").read_text())["models"][0]
-    assert set(model["config"]["meta"]) == {"semantic_contract"}
+    assert "meta" not in model["config"]
