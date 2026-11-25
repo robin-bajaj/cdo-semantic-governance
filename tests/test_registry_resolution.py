@@ -124,16 +124,18 @@ def test_existing_team_compilation_and_composition_accept_resolved_registry(tmp_
     # setup_compiled produces an already compiled project: verify catalog uses
     # registry-resolved definitions and includes lineage.
     result_file = tmp_path / "catalog.yml"
-    compose_cdo(root, original, manifest, result_file)
+    compose_cdo(root, original, manifest, result_file, bindings_path=root.parent / 'bindings.yml')
     baseline = yaml.safe_load(result_file.read_text())
     assert baseline["contract"] == {"name": "cdo.position", "version": 1}
     # Fresh project with uncompiled team models using the registry.
     from test_semantic_compiler import project
     fresh_root, _ = project(tmp_path / "fresh")
-    assert len(compile_semantics(fresh_root, HERE)) == 2
+    assert len(compile_semantics(fresh_root, HERE, fresh_root.parent / 'bindings.yml')) == 2
     for team in ("team_a", "team_c"):
         model = yaml.safe_load((fresh_root / "models" / f"{team}.yml").read_text())["models"][0]
-        assert model["config"]["meta"]["semantic_contract"]["implements"] == "cdo.position"
+        assert "meta" not in model["config"]
+        resolved = yaml.safe_load((fresh_root.parent / "bindings.yml").read_text())
+        assert resolved["models"][f"stg_{team}_positions"]["semantic_contract"]["implements"] == "cdo.position"
         assert model["metrics"][0]["expr"] == "profit_loss"
 
 
