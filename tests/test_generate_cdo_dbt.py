@@ -70,10 +70,15 @@ def test_generate_native_cdo_from_two_team_catalog(tmp_path):
     assert "null::numeric as mtm" in sql
     assert native["semantic_model"]["enabled"] is True
     assert native["primary_entity"] == "cdo_position"
+    assert "meta" not in native.get("config", {})
     metrics = {metric["name"]: metric for metric in native["metrics"]}
     assert {"cdo_total_profit_loss", "cdo_equity_total_mtm", "cdo_fi_total_settled_cash"} <= set(metrics)
     assert metrics["cdo_total_profit_loss"]["fill_nulls_with"] == 0
     assert metrics["cdo_total_profit_loss"]["expr"] == "profit_loss"
+    for name in ("cdo_equity_total_mtm", "cdo_fi_total_settled_cash"):
+        assert "meta" not in metrics[name].get("config", {})
+    assert "source_team_metric" not in result.read_text()
+    assert "composition_sources" not in result.read_text()
 
 
 def test_sql_null_pads_optional_business_attribute(tmp_path):
