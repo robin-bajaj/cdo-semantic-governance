@@ -4,7 +4,7 @@ import yaml
 import pytest
 from test_compose_cdo import setup_compiled
 from cdo_governance.semantic.position_composer import compose_cdo
-from cdo_governance.semantic.composition_selection import (
+from cdo_governance.semantic.position_selection import (
     available_implementations, select_composition)
 from cdo_governance.semantic.position_dbt_generator import generate
 
