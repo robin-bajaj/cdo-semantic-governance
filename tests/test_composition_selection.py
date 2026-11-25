@@ -47,6 +47,50 @@ def test_discovery_only_lists_validated_models_fields_and_eligible_metrics(tmp_p
     assert "team_a_profit_loss" in choices["team_a_positions"]["metrics"]
 
 
+
+def test_discovery_reports_team_entity_and_dimension_aliases_without_changing_columns(tmp_path):
+    catalog = make_catalog(tmp_path)
+    a = next(i for i in catalog["implementations"] if i["semantic_model"] == "team_a_positions")
+    c = next(i for i in catalog["implementations"] if i["semantic_model"] == "team_c_positions")
+    a_column = next(x for x in a["columns"] if x["name"] == "position_id")
+    c_column = next(x for x in c["columns"] if x["name"] == "position_id")
+    a_column["entity"] = {"name": "equity_position_id", "type": "primary"}
+    c_column["entity"] = {"name": "team_c_position", "type": "primary"}
+    date = next(x for x in a["columns"] if x["name"] == "report_date")
+    date["dimension"] = {"name": "equity_report_date", "type": "time"}
+    date["granularity"] = "day"
+    discovered = available_implementations(catalog)
+    choices = {x["semantic_model"]: x for x in discovered["available_implementations"]}
+    team_a = {x["name"]: x for x in choices["team_a_positions"]["attribute_semantics"]}
+    team_c = {x["name"]: x for x in choices["team_c_positions"]["attribute_semantics"]}
+    assert team_a["position_id"] == {
+        "name": "position_id", "data_type": "text",
+        "semantic_entity": "equity_position_id", "entity_type": "primary"}
+    assert team_c["position_id"]["semantic_entity"] == "team_c_position"
+    assert team_a["report_date"]["semantic_dimension"] == "equity_report_date"
+    assert team_a["report_date"]["dimension_type"] == "time"
+    assert team_a["report_date"]["granularity"] == "day"
+    assert team_a["mtm"] == {"name": "mtm", "data_type": "numeric"}
+    assert "position_id" in choices["team_a_positions"]["attributes"]
+    assert "equity_position_id" not in choices["team_a_positions"]["attributes"]
+
+    # Selection continues to use the governed column, not a team semantic alias.
+    chosen = choice(catalog)
+    assert apply(tmp_path, catalog, chosen)["implementations"][0]["columns"][0]["name"] == "position_id"
+    chosen["sources"][0]["include"]["attributes"][0] = "equity_position_id"
+    with pytest.raises(ValueError, match="not available"):
+        apply(tmp_path, catalog, chosen)
+
+
+def test_discovery_falls_back_to_column_name_for_unaliased_semantic_role(tmp_path):
+    catalog = make_catalog(tmp_path)
+    discovered = available_implementations(catalog)
+    team_a = next(x for x in discovered["available_implementations"]
+                  if x["semantic_model"] == "team_a_positions")
+    attributes = {x["name"]: x for x in team_a["attribute_semantics"]}
+    assert attributes["report_date"]["semantic_dimension"] == "report_date"
+    assert attributes["position_id"]["semantic_entity"] == "team_a_position"
+
 def test_pick_only_team_a_and_only_selected_fields_and_metric(tmp_path):
     catalog = make_catalog(tmp_path)
     selection = choice(catalog, metrics=["team_a_profit_loss"])
