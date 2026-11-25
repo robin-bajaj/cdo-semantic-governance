@@ -246,3 +246,33 @@ compiled Team A/C models remain unchanged and contain no CDO `meta`.
 Changing a CDO selection requires a governance-repository PR, updated reviewed
 governance commit pin in the federated repository, passing CI and the protected
 `generated/production` release. Hosted dbt Cloud publication remains separate.
+
+
+### Discovering team semantic entity and dimension names
+
+The CDO discovery artifact `cdo-position-options.yml` now provides both
+`attributes` (canonical source-column names for the selection file) and
+`attribute_semantics` (the semantic role of each source column). For example:
+
+```yaml
+semantic_model: team_a_equity_positions
+attributes: [position_id, report_date, profit_loss, instrument_code, mtm, cash]
+attribute_semantics:
+  - name: position_id
+    data_type: text
+    semantic_entity: equity_position_id
+    entity_type: primary
+  - name: report_date
+    data_type: date
+    semantic_dimension: report_date
+    dimension_type: time
+    granularity: day
+```
+
+Semantic aliases reflect each team's **validated compiled semantic properties**,
+not invented CDO names. Other teams can use other entity/dimension names for
+the same canonical column. The selected CDO output keeps its independent
+`cdo_position` identity and canonical `position_id` column; discovery
+does **not** automatically promote a team-specific alias to the enterprise
+model. Continue to specify `position_id` rather than `equity_position_id`
+in `compositions/cdo_position_v1.yml`. No extra YAML or UI is needed.
