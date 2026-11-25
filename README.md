@@ -171,10 +171,28 @@ The custom compiler converts `position_id` into a native dbt `columns` entry wit
 **Compatibility caution:** Changing an entity or dimension name changes what semantic consumers reference. It does not change source column names, staging SQL, dbt model contract column types, or the canonical CDO Position composition.
 
 
-## Generated dbt YAML metadata boundaries
+## Native dbt YAML and temporary governance bindings
 
-The authored Team A/C model YAML on `main` uses custom `config.meta.uses` and `config.meta.include` as **compiler input only**. After compilation those resolved declarations are removed from the deployable YAML, because native dbt does not need to interpret them and their expanded columns/metrics already capture the result.
+Only **authored** team YAML (on `main`) contains the custom inheritance input under `config.meta.uses` and `config.meta.include`. The compiler expands those declarations into native dbt columns/metrics and removes all CDO-specific `config.meta` from the compiled output, including `semantic_contract` and per-metric `metric_contract`.
 
-The compiled team's `config.meta.semantic_contract` is **retained**: the manifest validator uses `implements`, `version` and `included_attributes`; the CDO Position composer also checks `included_metrics` and verifies the marker matches the manifest. Inherited metrics retain `config.meta.metric_contract` so the composer can verify their governed formulas against the CDO contract. The resulting temporary composition catalog (published separately in `artifacts/cdo/position_v1_composition.yml`) carries source/team provenance.
+Instead, the compiler optionally writes **temporary, versioned bindings** for the same CI checkout:
 
-The generated CDO enterprise dbt model and its projected extension metrics omit descriptive-only `config.meta` fields (`cdo_contract`, `cdo_contract_version`, `composition_sources`, `source_team_metric`, `owner`, `source_semantic_model`), which are not read for query execution or validation. Actual runtime source mapping remains in the generated CDO SQL via `ref('stg_team_a_positions')` and `ref('stg_team_c_positions')`, and metric execution uses the native YAML definitions.
+```bash
+python -m cdo_governance.semantic.semantic_compiler \
+  --registry ../cdo-governance/contracts \
+  --project . \
+  --bindings-output .ci/cdo-resolved-bindings.yml
+```
+
+The ephemeral bindings file identifies each participating physical dbt model, CDO contract name/version, selected canonical attributes, and inherited governed metric aliases. Keep it **outside `models/`** and **do not commit or deploy it**. Validation compares the resolved bindings with dbt's parsed `target/manifest.json`, enforcing column types, explicit inheritance opt-in, native model contract enforcement, metric formulas and expected participating teams. Composition reads the same bindings:
+
+```bash
+python -m cdo_governance.semantic.position_composer \
+  --project . \
+  --contract ../cdo-governance/contracts \
+  --manifest target/manifest.json \
+  --bindings .ci/cdo-resolved-bindings.yml \
+  --output /tmp/current_cdo_catalog.yml
+```
+
+The validated `artifacts/cdo/position_v1_composition.yml` remains the reviewable **persistent** CDO provenance catalog. The generated Team A/C and CDO enterprise dbt semantic YAML needs no CDO-specific `meta`. Actual runtime source mappings remain in CDO-generated SQL `ref()` references, not in governance metadata. Legacy direct API callers that omit bindings are supported temporarily but cannot validate newly generated models without the external bindings.
