@@ -76,7 +76,7 @@ def test_rejects_missing_participating_team(tmp_path):
     data["nodes"].pop("model.poc.stg_team_c_positions")
     manifest.write_text(json.dumps(data))
     output = tmp_path / "generated" / "cdo.yml"
-    with pytest.raises(ValueError, match="Missing expected semantic models"):
+    with pytest.raises(ValueError, match="expected exactly one compiled model"):
         compose_cdo(root, contract, manifest, output,
                     expected_teams=["team_a_positions", "team_c_positions"])
     assert not output.exists()
