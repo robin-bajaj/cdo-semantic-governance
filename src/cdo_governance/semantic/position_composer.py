@@ -10,7 +10,7 @@ import yaml
 
 from ..validation.contract_validator import validate_cdo_contract
 from .contract_registry import resolve_contract
-from .composition_selection import select_composition, available_implementations
+from .position_selection import select_composition, available_implementations
 
 
 def _load(path):
