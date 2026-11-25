@@ -224,7 +224,7 @@ CI should publish this discovery YAML as an artifact to help CDO choose without 
 The separate, direct discovery CLI can inspect a validated *unfiltered* catalog:
 
 ```bash
-python -m cdo_governance.semantic.composition_selection \
+python -m cdo_governance.semantic.position_selection \
   --catalog /tmp/validated-unfiltered-cdo-catalog.yml --list-implementations
 ```
 
