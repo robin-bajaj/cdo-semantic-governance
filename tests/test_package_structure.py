@@ -28,12 +28,13 @@ def test_inheritance_cli_passes_project_before_registry(monkeypatch):
 
     observed = {}
 
-    def fake_compile(project, registry):
+    def fake_compile(project, registry, bindings_output=None):
         observed["project"] = project
         observed["registry"] = registry
+        observed["bindings_output"] = bindings_output
         return ["models/team_a.yml", "models/team_c.yml"]
 
     monkeypatch.setattr(inheritance, "compile_semantics", fake_compile)
     monkeypatch.setattr(sys, "argv", ["semantic_compiler", "--registry", "contract.yml", "--project", "dbt-project"])
     inheritance.main()
-    assert observed == {"project": Path("dbt-project"), "registry": Path("contract.yml")}
+    assert observed == {"project": Path("dbt-project"), "registry": Path("contract.yml"), "bindings_output": None}
