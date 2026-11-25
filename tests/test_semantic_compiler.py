@@ -427,3 +427,48 @@ def test_attribute_alias_sets_dimension_semantic_name(tmp_path):
     result = yaml.safe_load(path.read_text())["models"][0]
     assert result["columns"][0]["name"] == "report_date"
     assert result["columns"][0]["dimension"]["name"] == "equity_report_date"
+
+
+def test_compiled_team_yaml_keeps_only_runtime_contract_metadata(tmp_path):
+    root, registry = project(tmp_path)
+    path = root / "models" / "team_a.yml"
+    document = yaml.safe_load(path.read_text())
+    model = document["models"][0]
+    model["config"]["meta"] = {
+        "uses": {"name": "cdo.position", "version": 1},
+        "include": {
+            "attributes": [
+                {"name": "position_id", "alias": "equity_position_id",
+                 "entity": {"type": "primary"}},
+                {"name": "report_date", "dimension": {"type": "time"}, "granularity": "day"},
+                {"name": "profit_loss"},
+                {"name": "instrument_code",
+                 "entity": {"name": "instrument", "type": "foreign"}},
+            ],
+            "metrics": [{"name": "total_profit_loss", "alias": "equity_profit_loss"}],
+        },
+    }
+    model["agg_time_dimension"] = "report_date"
+    path.write_text(yaml.safe_dump(document))
+    compile_semantics(root, registry)
+    compiled = yaml.safe_load(path.read_text())["models"][0]
+    meta = compiled["config"]["meta"]
+    assert set(meta) == {"semantic_contract"}
+    assert meta["semantic_contract"]["implements"] == "cdo.position"
+    assert meta["semantic_contract"]["version"] == 1
+    assert meta["semantic_contract"]["included_metrics"] == ["total_profit_loss"]
+    assert meta["semantic_contract"]["included_attributes"] == [
+        "position_id", "report_date", "profit_loss", "instrument_code"]
+    assert meta["semantic_contract"]["lineage"] == []
+    columns = {c["name"]: c for c in compiled["columns"]}
+    assert columns["position_id"]["entity"]["name"] == "equity_position_id"
+    metric = next(m for m in compiled["metrics"] if m["name"] == "equity_profit_loss")
+    assert metric["config"]["meta"]["metric_contract"] == {
+        "implements": "total_profit_loss", "version": 1}
+
+
+def test_legacy_inheritance_declaration_not_leaked_into_compiled_yaml(tmp_path):
+    root, registry = project(tmp_path)
+    compile_semantics(root, registry)
+    model = yaml.safe_load((root / "models" / "team_a.yml").read_text())["models"][0]
+    assert set(model["config"]["meta"]) == {"semantic_contract"}

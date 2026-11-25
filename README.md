@@ -169,3 +169,12 @@ config:
 The custom compiler converts `position_id` into a native dbt `columns` entry with `name: position_id` and `entity: {name: equity_position_id, type: primary}`. It never renames the physical database column, changes the CDO contract's attribute identifier or alters the metric formula. For time/categorical dimensions the same alias maps to `dimension.name`. Exactly one of `entity` or `dimension` must be present for an aliased attribute. If that semantic block already specifies `name`, it must match the alias; conflicting names fail validation rather than being silently overwritten. Unaliased fields continue to work as before. Aliasing standalone attributes without an entity/dimension is intentionally unsupported because there is no equivalent independent native semantic attribute name in this model structure.
 
 **Compatibility caution:** Changing an entity or dimension name changes what semantic consumers reference. It does not change source column names, staging SQL, dbt model contract column types, or the canonical CDO Position composition.
+
+
+## Generated dbt YAML metadata boundaries
+
+The authored Team A/C model YAML on `main` uses custom `config.meta.uses` and `config.meta.include` as **compiler input only**. After compilation those resolved declarations are removed from the deployable YAML, because native dbt does not need to interpret them and their expanded columns/metrics already capture the result.
+
+The compiled team's `config.meta.semantic_contract` is **retained**: the manifest validator uses `implements`, `version` and `included_attributes`; the CDO Position composer also checks `included_metrics` and verifies the marker matches the manifest. Inherited metrics retain `config.meta.metric_contract` so the composer can verify their governed formulas against the CDO contract. The resulting temporary composition catalog (published separately in `artifacts/cdo/position_v1_composition.yml`) carries source/team provenance.
+
+The generated CDO enterprise dbt model and its projected extension metrics omit descriptive-only `config.meta` fields (`cdo_contract`, `cdo_contract_version`, `composition_sources`, `source_team_metric`, `owner`, `source_semantic_model`), which are not read for query execution or validation. Actual runtime source mapping remains in the generated CDO SQL via `ref('stg_team_a_positions')` and `ref('stg_team_c_positions')`, and metric execution uses the native YAML definitions.
